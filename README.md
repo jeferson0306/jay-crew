@@ -1,6 +1,6 @@
 # Jay Crew
 
-> A multi-agent AI team that analyzes any project and produces a detailed, actionable execution plan — powered by Claude Opus.
+> A multi-agent AI team that scans any project and generates a complete, structured briefing — ready to be executed by Claude Code or any AI assistant. No API key required.
 
 ```
 ╔══════════════════════════════════════════════════╗
@@ -12,31 +12,43 @@
 
 ## What is Jay Crew?
 
-Jay Crew is a CLI tool that deploys a full team of specialized AI agents to analyze a software project from every angle. You give it a project path and a task — it activates the right specialists, runs their X-Ray analyses in parallel, and the Orchestrator synthesizes everything into a single, structured execution plan.
+Jay Crew is a CLI tool that **scans a software project** and generates a `crew-context.md` file containing:
 
-Think of it as summoning a senior tech team on demand for any project.
+- The full project snapshot (tree, config files, dependencies, source samples)
+- The relevant agent definitions for the requested task
+- Activation instructions for the Orchestrator
+
+You paste that file into **Claude Code** (or any AI assistant), say _"Run the Jay Crew"_, and the AI acts as the Orchestrator — running each specialist's X-Ray and synthesizing a complete execution plan.
+
+**No Anthropic API key. No standalone AI calls. Jay Crew is the framework; you bring the AI.**
 
 ---
 
 ## How It Works
 
 ```
-Phase 0 ──► Scan target project locally (no API calls)
+Step 1 ──► Run the CLI against any project
                │
                ▼
-Phase 1 ──► Orchestrator analyzes the request
-            and decides which specialists to activate
+Step 2 ──► Jay Crew scans the project locally
+           Builds a full snapshot (tree, configs, deps, source)
                │
                ▼
-Phase 2 ──► Activated specialists run X-Ray in parallel
-            Each one examines the project from their domain
+Step 3 ──► Suggests the right specialists
+           based on keyword analysis of your request
                │
                ▼
-Phase 3 ──► Orchestrator synthesizes all X-Ray reports
-            into a unified Execution Plan
+Step 4 ──► Generates crew-context-{timestamp}.md
+           with project context + agent definitions
                │
                ▼
-Phase 4 ──► crew-plan-{timestamp}.md is saved
+Step 5 ──► You paste the file into Claude Code
+           "Run the Jay Crew on this context"
+               │
+               ▼
+Step 6 ──► Claude acts as the Orchestrator
+           Runs each specialist's X-Ray
+           Produces the final Execution Plan
 ```
 
 ---
@@ -45,35 +57,35 @@ Phase 4 ──► crew-plan-{timestamp}.md is saved
 
 ### Core Agents
 
-| Agent | Role | Expertise |
+| Agent | File | Expertise |
 |-------|------|-----------|
-| **Orchestrator** | Team Lead | Coordinates all agents, decides who to activate, synthesizes the final plan |
-| **Radar** | Real-Time Research & Validation | Technologies, versions, 2026 trends, best practices, trade-offs |
-| **Engine** | Deep Logic & Programming | Algorithms, code quality, edge cases, design patterns, technical debt |
-| **Canvas** | Creativity, UX & Product Strategy | User flows, UI components, user stories, product strategy |
+| **Orchestrator** | `agents/core/orchestrator.md` | Coordinates the crew, decides specialists, synthesizes the final plan |
+| **Radar** | `agents/core/radar.md` | Real-time research — technologies, versions, 2026 trends, best practices |
+| **Engine** | `agents/core/engine.md` | Deep logic — algorithms, code quality, edge cases, design patterns |
+| **Canvas** | `agents/core/canvas.md` | Creativity — user flows, UI components, user stories, product strategy |
 
 ### Specialist Agents
 
-| Agent | Role | Focus |
+| Agent | File | Focus |
 |-------|------|-------|
-| `product-owner` | Product Owner | Requirements, acceptance criteria, MoSCoW, Definition of Done |
-| `business-analyst` | Business Analyst | Business processes, rules, operational flows, entity mapping |
-| `software-architect` | Software Architect | System architecture, C4 diagrams, ADRs, scalability |
-| `backend-dev` | Senior Backend Developer | APIs, database schema, auth, server logic, migrations |
-| `frontend-dev` | Senior Frontend Developer | Next.js 15, React, TypeScript, Tailwind, performance, a11y |
-| `mobile-dev` | Senior Mobile Developer | React Native, Flutter, native features, navigation |
-| `devops` | DevOps Engineer | Docker, CI/CD, Kubernetes, IaC, observability |
-| `security` | Security Engineer | OWASP Top 10, auth security, pentest, compliance |
-| `qa` | QA Engineer | Unit, integration, E2E testing, coverage, automation |
-| `tech-writer` | Technical Writer | README, Swagger/OpenAPI, developer guides, changelogs |
-| `ai-ml` | AI/ML Specialist | LLM integration, embeddings, RAG, ML pipelines |
-| `performance` | Performance Engineer | Profiling, caching, query optimization, scalability |
+| `product-owner` | `agents/specialists/product-owner.md` | Requirements, acceptance criteria, MoSCoW, Definition of Done |
+| `business-analyst` | `agents/specialists/business-analyst.md` | Business processes, rules, operational flows, entity mapping |
+| `software-architect` | `agents/specialists/software-architect.md` | System architecture, C4 diagrams, ADRs, scalability |
+| `backend-dev` | `agents/specialists/backend-dev.md` | APIs, database schema, auth, server logic, migrations |
+| `frontend-dev` | `agents/specialists/frontend-dev.md` | Next.js 15, React, TypeScript, Tailwind, performance, a11y |
+| `mobile-dev` | `agents/specialists/mobile-dev.md` | React Native, Flutter, native features, navigation |
+| `devops` | `agents/specialists/devops.md` | Docker, CI/CD, Kubernetes, IaC, observability |
+| `security` | `agents/specialists/security.md` | OWASP Top 10, auth security, pentest, compliance |
+| `qa` | `agents/specialists/qa.md` | Unit, integration, E2E testing, coverage, automation |
+| `tech-writer` | `agents/specialists/tech-writer.md` | README, Swagger/OpenAPI, developer guides, changelogs |
+| `ai-ml` | `agents/specialists/ai-ml.md` | LLM integration, embeddings, RAG, ML pipelines |
+| `performance` | `agents/specialists/performance.md` | Profiling, caching, query optimization, scalability |
 
 ---
 
 ## Setup
 
-**1. Clone and install dependencies**
+**1. Clone and install**
 
 ```bash
 git clone https://github.com/jeferson0306/jay-crew.git
@@ -81,19 +93,7 @@ cd jay-crew
 npm install
 ```
 
-**2. Configure your API key**
-
-```bash
-cp .env.example .env
-```
-
-Open `.env` and add your key:
-
-```
-ANTHROPIC_API_KEY=sk-ant-...
-```
-
-> Get your key at [console.anthropic.com](https://console.anthropic.com)
+No `.env`, no API key, no external service needed.
 
 ---
 
@@ -113,47 +113,34 @@ npx tsx src/index.ts [options] "your request"
 
 ### Examples
 
-**Analyze any external project:**
 ```bash
+# Analyze any external project
 npx tsx src/index.ts --project ~/my-nextjs-app "Add JWT authentication"
-```
 
-**Analyze the current directory:**
-```bash
+# Analyze the current directory
 npx tsx src/index.ts "Create a full roadmap for this project"
-```
 
-**Force specific specialists:**
-```bash
+# Force specific specialists
 npx tsx src/index.ts -p ~/my-app -s backend-dev,security,qa "Implement OAuth2 with Google"
-```
 
-**Full-stack feature planning:**
-```bash
+# Full-stack feature planning
 npx tsx src/index.ts -p ~/my-saas "Add a subscription billing system with Stripe"
 ```
 
-**Security audit:**
-```bash
-npx tsx src/index.ts -p ~/my-api -s security,backend-dev "Security audit and hardening"
+### Output
+
+A `crew-context-{timestamp}.md` file is generated containing everything the AI needs:
+
+```
+crew-context-2026-02-27T10-30-00.md
+├── Project snapshot (tree, configs, dependencies, source samples)
+├── Suggested crew for the task
+├── Orchestrator definition (Phase 1 + Phase 2 format)
+└── Each selected specialist's definition (identity + X-Ray format)
 ```
 
----
-
-## Output
-
-The tool generates a `crew-plan-{timestamp}.md` file containing:
-
-1. **Orchestrator Analysis** — Initial decision: which specialists were activated and why
-2. **Specialist X-Ray Reports** — Each agent's analysis from their domain perspective
-3. **Execution Plan** — The final synthesized plan with:
-   - Executive Summary
-   - Specialist Diagnostics (table)
-   - Implementation Roadmap (ordered phases)
-   - Dependency Map
-   - Risks & Mitigations
-   - Recommended Stack
-   - Immediate Next Steps
+**Then paste it into Claude Code and say:**
+> _"Run the Jay Crew on this context."_
 
 ---
 
@@ -161,51 +148,52 @@ The tool generates a `crew-plan-{timestamp}.md` file containing:
 
 ```
 jay-crew/
+├── agents/
+│   ├── core/
+│   │   ├── orchestrator.md   ← Phase 1 (decision) + Phase 2 (synthesis) format
+│   │   ├── radar.md          ← Real-Time Research & Validation
+│   │   ├── engine.md         ← Deep Logic & Programming
+│   │   └── canvas.md         ← Creativity, UX & Product Strategy
+│   └── specialists/
+│       ├── product-owner.md
+│       ├── business-analyst.md
+│       ├── software-architect.md
+│       ├── backend-dev.md
+│       ├── frontend-dev.md
+│       ├── mobile-dev.md
+│       ├── devops.md
+│       ├── security.md
+│       ├── qa.md
+│       ├── tech-writer.md
+│       ├── ai-ml.md
+│       └── performance.md
 ├── src/
-│   ├── agents/
-│   │   ├── core/
-│   │   │   ├── orchestrator.ts   ← Phase 1 (decision) + Phase 3 (synthesis)
-│   │   │   ├── radar.ts          ← Real-Time Research & Validation
-│   │   │   ├── engine.ts         ← Deep Logic & Programming
-│   │   │   └── canvas.ts         ← Creativity, UX & Product Strategy
-│   │   ├── specialists/
-│   │   │   ├── product-owner.ts
-│   │   │   ├── business-analyst.ts
-│   │   │   ├── software-architect.ts
-│   │   │   ├── backend-dev.ts
-│   │   │   ├── frontend-dev.ts
-│   │   │   ├── mobile-dev.ts
-│   │   │   ├── devops.ts
-│   │   │   ├── security.ts
-│   │   │   ├── qa.ts
-│   │   │   ├── tech-writer.ts
-│   │   │   ├── ai-ml.ts
-│   │   │   └── performance.ts
-│   │   └── registry.ts           ← Maps role names → runXRay functions
 │   ├── tools/
-│   │   ├── project-scanner.ts    ← Scans target project (no API calls)
+│   │   ├── project-scanner.ts    ← Scans target project filesystem
 │   │   └── path-utils.ts         ← Path helpers & file tree formatting
 │   ├── types/
-│   │   └── index.ts              ← All TypeScript types
-│   ├── client.ts                 ← Anthropic SDK wrapper
-│   └── index.ts                  ← CLI entry point & main pipeline
-├── .env.example
+│   │   └── index.ts              ← TypeScript types
+│   └── index.ts                  ← CLI entry point & context file builder
 ├── package.json
 └── tsconfig.json
 ```
 
 ### Design Principles
 
-- **Parallel execution** — All specialist X-Rays run concurrently (saves 60–80% of API time)
-- **Local scan first** — The project snapshot is built locally before any API call
-- **Graceful degradation** — If one specialist fails, the rest continue and contribute to the plan
-- **Role-based registry** — Adding a new specialist is as simple as creating one file and registering it
+- **No API calls** — Jay Crew only reads the filesystem; the AI runs externally
+- **Agent definitions as markdown** — Each agent is a plain `.md` file, easy to read and extend
+- **Smart specialist selection** — Keyword heuristics suggest the right crew for any request
+- **Bring your own AI** — Works with Claude Code, ChatGPT, Gemini, or any AI assistant
 
 ---
 
-## Model
+## Adding a New Agent
 
-Jay Crew uses **Claude Opus 4.6** (`claude-opus-4-6`) for all agents — the most capable model for complex analysis and synthesis tasks.
+1. Create `agents/specialists/my-agent.md` following the existing format
+2. Add `"my-agent"` to the `SpecialistRole` type in `src/types/index.ts`
+3. Add the keyword heuristics to `suggestSpecialists()` in `src/index.ts`
+
+That's it — no other changes needed.
 
 ---
 
@@ -213,4 +201,3 @@ Jay Crew uses **Claude Opus 4.6** (`claude-opus-4-6`) for all agents — the mos
 
 - Node.js 20+
 - `npm` (or `bun`)
-- Anthropic API key

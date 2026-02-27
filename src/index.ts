@@ -1,32 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { buildProjectSnapshot } from "./tools/project-scanner.js";
+import { buildProjectSnapshot, buildProjectContext } from "./tools/project-scanner.js";
 import { resolveProjectPath } from "./tools/path-utils.js";
-import { runOrchestratorPhase1, runOrchestratorPhase2 } from "./agents/core/orchestrator.js";
-import { REGISTRY, VALID_ROLES } from "./agents/registry.js";
-import type { AgentResult, SpecialistRole } from "./types/index.js";
-
-// ─── Load .env if present ─────────────────────────────────────────────────────
-
-async function loadEnv(): Promise<void> {
-  try {
-    const envPath = path.join(process.cwd(), ".env");
-    const content = await fs.readFile(envPath, "utf8");
-    for (const line of content.split("\n")) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith("#")) continue;
-      const eqIdx = trimmed.indexOf("=");
-      if (eqIdx < 0) continue;
-      const key = trimmed.slice(0, eqIdx).trim();
-      const value = trimmed.slice(eqIdx + 1).trim().replace(/^["']|["']$/g, "");
-      if (key && !process.env[key]) {
-        process.env[key] = value;
-      }
-    }
-  } catch {
-    // .env not found — no problem
-  }
-}
+import type { SpecialistRole } from "./types/index.js";
 
 // ─── CLI argument parsing ─────────────────────────────────────────────────────
 
@@ -35,6 +11,13 @@ interface CliArgs {
   userRequest: string;
   specificSpecialists?: SpecialistRole[];
 }
+
+const VALID_ROLES: SpecialistRole[] = [
+  "radar", "engine", "canvas",
+  "product-owner", "business-analyst", "software-architect",
+  "backend-dev", "frontend-dev", "mobile-dev",
+  "devops", "security", "qa", "tech-writer", "ai-ml", "performance",
+];
 
 function parseArgs(): CliArgs {
   const args = process.argv.slice(2);
@@ -83,8 +66,8 @@ USAGE:
   npx tsx src/index.ts [options] "your request"
 
 OPTIONS:
-  --project,     -p <path>   Path to the target project (default: current directory)
-  --specialists, -s <list>   Comma-separated list of specific specialists to activate
+  --project,     -p <path>   Path to target project (default: current directory)
+  --specialists, -s <list>   Comma-separated list of specific specialists
   --help,        -h          Show this help message
 
 AVAILABLE SPECIALISTS:
@@ -100,21 +83,93 @@ EXAMPLES:
 `);
 }
 
+// ─── Specialist suggestion heuristic (no AI needed) ──────────────────────────
+
+function suggestSpecialists(request: string): SpecialistRole[] {
+  const r = request.toLowerCase();
+  const suggested = new Set<SpecialistRole>();
+
+  // Always include architect for structural context
+  suggested.add("software-architect");
+
+  if (r.match(/auth|login|jwt|oauth|session|token|password|signup|register|credential/))  {
+    suggested.add("backend-dev");
+    suggested.add("security");
+  }
+  if (r.match(/ui|ux|design|component|page|screen|form|modal|frontend|interface|style/)) {
+    suggested.add("frontend-dev");
+    suggested.add("canvas");
+  }
+  if (r.match(/api|endpoint|route|database|schema|migration|model|query|backend|server/)) {
+    suggested.add("backend-dev");
+  }
+  if (r.match(/mobile|ios|android|react native|flutter|expo|native/)) {
+    suggested.add("mobile-dev");
+  }
+  if (r.match(/deploy|docker|ci|cd|kubernetes|k8s|infrastructure|devops|pipeline|cloud/)) {
+    suggested.add("devops");
+  }
+  if (r.match(/security|secure|vulnerability|owasp|pentest|encrypt|permission|rbac/)) {
+    suggested.add("security");
+  }
+  if (r.match(/performance|optimize|speed|slow|cache|scale|load|latency|memory/)) {
+    suggested.add("performance");
+  }
+  if (r.match(/test|testing|coverage|e2e|unit|integration|vitest|jest|playwright/)) {
+    suggested.add("qa");
+  }
+  if (r.match(/doc|readme|swagger|openapi|documentation|guide|changelog/)) {
+    suggested.add("tech-writer");
+  }
+  if (r.match(/\bai\b|ml|llm|gpt|claude|embedding|rag|chatbot|model|vector/)) {
+    suggested.add("ai-ml");
+  }
+  if (r.match(/research|compare|evaluate|best practice|trend|library|framework|version/)) {
+    suggested.add("radar");
+  }
+  if (r.match(/feature|product|requirement|story|roadmap|business|user story|backlog/)) {
+    suggested.add("product-owner");
+  }
+  if (r.match(/process|flow|business rule|operational|entity|integration|workflow/)) {
+    suggested.add("business-analyst");
+  }
+
+  // Always add engine for deep logic analysis
+  suggested.add("engine");
+
+  return Array.from(suggested).slice(0, 7);
+}
+
+// ─── Load agent definition from markdown files ────────────────────────────────
+
+const AGENTS_DIR = path.join(
+  path.dirname(new URL(import.meta.url).pathname),
+  "..",
+  "agents"
+);
+
+async function loadAgentDefinition(role: string): Promise<string> {
+  const candidates = [
+    path.join(AGENTS_DIR, "core", `${role}.md`),
+    path.join(AGENTS_DIR, "specialists", `${role}.md`),
+  ];
+  for (const candidate of candidates) {
+    try {
+      return await fs.readFile(candidate, "utf8");
+    } catch {}
+  }
+  return `# ${role}\n\n_Agent definition not found._\n`;
+}
+
 // ─── Progress logging ─────────────────────────────────────────────────────────
 
 function log(emoji: string, message: string): void {
   console.log(`${emoji}  ${message}`);
 }
 
-function logTiming(label: string, ms: number): void {
-  console.log(`   ↳ ${label}: ${(ms / 1000).toFixed(1)}s`);
-}
-
 // ─── Main flow ────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  await loadEnv();
-
   const { projectPath, userRequest, specificSpecialists } = parseArgs();
 
   console.log("\n╔══════════════════════════════════════════════════╗");
@@ -125,150 +180,114 @@ async function main(): Promise<void> {
   log("💬", `Request: "${userRequest}"`);
   console.log("");
 
-  // ── Phase 0: Scan target project ─────────────────────────────────────────────
+  // ── Scan target project ───────────────────────────────────────────────────────
   log("🔍", "Scanning target project...");
-  const scanStart = Date.now();
+  const start = Date.now();
   const snapshot = await buildProjectSnapshot(projectPath);
-  logTiming(`${snapshot.stats.totalFiles} files scanned`, Date.now() - scanStart);
+  const projectContext = buildProjectContext(snapshot);
+  log("✅", `${snapshot.stats.totalFiles} files scanned in ${((Date.now() - start) / 1000).toFixed(1)}s`);
   console.log("");
 
-  // ── Phase 1: Orchestrator decides specialists ─────────────────────────────────
-  log("🧠", "Orchestrator analyzing request...");
-  const phase1Start = Date.now();
-  const { decision, result: phase1Result } = await runOrchestratorPhase1(
-    snapshot,
-    userRequest,
-    specificSpecialists
-  );
-
-  if (!phase1Result.success) {
-    console.error("Orchestrator error (phase 1):", phase1Result.error);
-    process.exit(1);
-  }
-
-  logTiming("decision made", Date.now() - phase1Start);
-  log("✅", `Activated specialists: ${decision.activatedSpecialists.join(", ")}`);
+  // ── Select specialists ────────────────────────────────────────────────────────
+  const specialists = specificSpecialists ?? suggestSpecialists(userRequest);
+  log("🧠", `Crew selected: ${specialists.join(", ")}`);
   console.log("");
 
-  // ── Phase 2: Parallel X-Ray ───────────────────────────────────────────────────
-  const activeSpecialists = decision.activatedSpecialists.filter(
-    (role) => role in REGISTRY
+  // ── Load agent definitions ────────────────────────────────────────────────────
+  log("📖", "Loading agent definitions...");
+  const orchestratorDef = await loadAgentDefinition("orchestrator");
+  const agentDefs = await Promise.all(
+    specialists.map(async (role) => ({
+      role,
+      definition: await loadAgentDefinition(role),
+    }))
   );
 
-  log("⚡", `Running X-Ray with ${activeSpecialists.length} specialist(s) in parallel...`);
-  const phase2Start = Date.now();
-
-  const xrayResults: AgentResult[] = await Promise.all(
-    activeSpecialists.map((role) => {
-      log("  →", `${role}...`);
-      return REGISTRY[role](snapshot, userRequest);
-    })
-  );
-
-  const successCount = xrayResults.filter((r) => r.success).length;
-  logTiming(
-    `${successCount}/${xrayResults.length} specialists completed`,
-    Date.now() - phase2Start
-  );
-  console.log("");
-
-  // ── Phase 3: Synthesis — execution plan ──────────────────────────────────────
-  log("📊", "Orchestrator synthesizing analyses into execution plan...");
-  const phase3Start = Date.now();
-  const finalPlan = await runOrchestratorPhase2(
-    snapshot,
-    userRequest,
-    phase1Result.data,
-    xrayResults
-  );
-
-  logTiming("synthesis complete", Date.now() - phase3Start);
-  console.log("");
-
-  if (!finalPlan.success) {
-    console.error("Orchestrator synthesis error:", finalPlan.error);
-    process.exit(1);
-  }
-
-  // ── Phase 4: Save plan ────────────────────────────────────────────────────────
+  // ── Build context file ────────────────────────────────────────────────────────
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-  const outputFile = `crew-plan-${timestamp}.md`;
+  const outputFile = `crew-context-${timestamp}.md`;
+  const content = buildContextFile(snapshot, projectContext, userRequest, specialists, orchestratorDef, agentDefs);
 
-  const fullReport = buildFullReport(
-    snapshot.projectName,
-    userRequest,
-    decision.activatedSpecialists,
-    phase1Result.data,
-    xrayResults,
-    finalPlan.data
-  );
+  await fs.writeFile(outputFile, content, "utf8");
 
-  await fs.writeFile(outputFile, fullReport, "utf8");
-
-  log("✅", `Plan saved to: ${outputFile}`);
-
-  // ── Timing summary ────────────────────────────────────────────────────────────
-  const totalMs = xrayResults.reduce((sum, r) => sum + r.durationMs, 0) + finalPlan.durationMs;
-  const parallelMs = Math.max(...xrayResults.map((r) => r.durationMs), 0) + finalPlan.durationMs;
-  const saved = totalMs - parallelMs;
-
+  log("✅", `Context file saved: ${outputFile}`);
   console.log("");
   console.log("─────────────────────────────────────────────────");
-  console.log(`⏱  Total API time: ${(totalMs / 1000).toFixed(1)}s`);
-  console.log(`⚡ Executed in parallel: ${(parallelMs / 1000).toFixed(1)}s`);
-  if (saved > 1000) {
-    console.log(`💡 Saved by parallelism: ~${(saved / 1000).toFixed(1)}s`);
-  }
+  console.log("  Paste this file into Claude Code and say:");
+  console.log('  "Run the Jay Crew on this context."');
   console.log("─────────────────────────────────────────────────\n");
 }
 
-// ─── Full report assembler ────────────────────────────────────────────────────
+// ─── Context file builder ─────────────────────────────────────────────────────
 
-function buildFullReport(
-  projectName: string,
+function buildContextFile(
+  snapshot: { projectName: string },
+  projectContext: string,
   userRequest: string,
   specialists: SpecialistRole[],
-  phase1Analysis: string,
-  xrayResults: AgentResult[],
-  finalPlan: string
+  orchestratorDef: string,
+  agentDefs: Array<{ role: string; definition: string }>
 ): string {
   const timestamp = new Date().toISOString();
 
-  const xraySection = xrayResults
-    .map((r) => {
-      if (!r.success) {
-        return `---\n\n## ❌ ${r.agentName} — FAILED\n\nError: ${r.error ?? "unknown"}\n`;
-      }
-      return `---\n\n${r.data}\n\n_⏱ ${(r.durationMs / 1000).toFixed(1)}s_\n`;
-    })
-    .join("\n");
+  const agentSection = agentDefs
+    .map(({ definition }) => `---\n\n${definition}`)
+    .join("\n\n");
 
-  return `# Jay Crew — Execution Plan
-> Project: **${projectName}** · Generated: ${timestamp}
+  return `# Jay Crew — Project Briefing
+> Project: **${snapshot.projectName}** · Generated: ${timestamp}
 
-## Request
+---
+
+## How to Use
+
+Paste this file into Claude Code (or any AI assistant) and say:
+
+> **"You are the Jay Crew Orchestrator. Run the full crew analysis for the task described below."**
+
+The AI will act as the Orchestrator, run each specialist's X-Ray, and produce a complete execution plan.
+
+---
+
+## User Request
+
 > ${userRequest}
 
-## Activated Specialists
+---
+
+## Suggested Crew
+
+Based on the request, the following specialists were selected:
+
 ${specialists.map((s) => `- \`${s}\``).join("\n")}
 
 ---
 
-# Orchestrator Analysis (Phase 1)
+## Project Context
 
-${phase1Analysis}
-
----
-
-# Specialist X-Ray Reports
-
-${xraySection}
+${projectContext}
 
 ---
 
-# Execution Plan — Final Synthesis
+## Agent Definitions
 
-${finalPlan}
+### Orchestrator
+
+${orchestratorDef}
+
+${agentSection}
+
+---
+
+## Activation Instructions
+
+You are the **Jay Crew Orchestrator**.
+
+Using the agent definitions above and the project context provided:
+
+1. Confirm or adjust the suggested crew based on the request
+2. Run each specialist's X-Ray analysis (use their exact output format)
+3. Synthesize all X-Ray results into a final **Execution Plan** following the Orchestrator's Phase 2 format
 `;
 }
 

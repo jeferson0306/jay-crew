@@ -1,7 +1,7 @@
 {
   "name": "jay-crew",
   "version": "1.0.0",
-  "description": "Time completo de agentes IA para análise, planejamento e execução em projetos de software",
+  "description": "Multi-agent AI team for project analysis and execution planning — no API key required",
   "type": "module",
   "scripts": {
     "dev": "tsx src/index.ts",
@@ -9,9 +9,7 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {
-    "@anthropic-ai/sdk": "^0.39.0"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@types/node": "^22.0.0",
     "tsx": "^4.19.0",

@@ -1,20 +1,3 @@
-// ─── Shared primitives ────────────────────────────────────────────────────────
-
-export interface AgentResult {
-  success: boolean;
-  data: string;
-  error?: string;
-  agentName: string;
-  durationMs: number;
-}
-
-export interface AgentCallOptions {
-  agentName: string;
-  systemPrompt: string;
-  userMessage: string;
-  maxTokens?: number;
-}
-
 // ─── Target project snapshot ──────────────────────────────────────────────────
 
 export interface FileNode {
@@ -27,7 +10,6 @@ export interface FileNode {
 
 export interface FileStats {
   totalFiles: number;
-  totalDirs: number;
   totalBytes: number;
   byExtension: Record<string, number>;
   largestFiles: Array<{ path: string; size: number }>;
@@ -62,25 +44,3 @@ export type SpecialistRole =
   | "tech-writer"        // Docs, README, Swagger/OpenAPI
   | "ai-ml"              // LLMs, Embeddings, RAG, ML Pipelines
   | "performance";       // Optimization, Scalability, Cost
-
-// ─── User request ─────────────────────────────────────────────────────────────
-
-export interface CrewRequest {
-  userRequest: string;
-  projectPath: string;
-  specificSpecialists?: SpecialistRole[];
-}
-
-// ─── Orchestrator decision (phase 1) ──────────────────────────────────────────
-
-export interface OrchestratorDecision {
-  activatedSpecialists: SpecialistRole[];
-  rawResponse: string;
-}
-
-// ─── X-Ray function signature per specialist ──────────────────────────────────
-
-export type AgentXRayFn = (
-  snapshot: ProjectSnapshot,
-  userRequest: string
-) => Promise<AgentResult>;

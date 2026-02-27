@@ -119,7 +119,6 @@ function collectFileStats(
 
   return {
     totalFiles: allFiles.length,
-    totalDirs: 0,
     totalBytes,
     byExtension,
     largestFiles,
