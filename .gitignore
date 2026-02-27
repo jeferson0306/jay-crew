@@ -1,0 +1,24 @@
+# Ambiente
+.env
+
+# Compilado
+dist/
+build/
+
+# Dependências
+node_modules/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Claude
+.claude/
+
+# Planos gerados
+crew-plan-*.md
+xray-*.md
+
+# OS
+.DS_Store
