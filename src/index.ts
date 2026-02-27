@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { buildProjectSnapshot, buildProjectContext } from "./tools/project-scanner.js";
 import { resolveProjectPath } from "./tools/path-utils.js";
-import type { SpecialistRole } from "./types/index.js";
+import type { PersonaRole, SpecialistRole } from "./types/index.js";
 
 // ─── CLI argument parsing ─────────────────────────────────────────────────────
 
@@ -10,6 +10,7 @@ interface CliArgs {
   projectPath: string;
   userRequest: string;
   specificSpecialists?: SpecialistRole[];
+  persona?: PersonaRole;
 }
 
 const VALID_ROLES: SpecialistRole[] = [
@@ -17,6 +18,11 @@ const VALID_ROLES: SpecialistRole[] = [
   "product-owner", "business-analyst", "software-architect",
   "backend-dev", "frontend-dev", "mobile-dev",
   "devops", "security", "qa", "tech-writer", "ai-ml", "performance",
+];
+
+const VALID_PERSONAS: PersonaRole[] = [
+  "new-dev", "senior-dev", "tech-migrator",
+  "task-executor", "tech-lead", "due-diligence",
 ];
 
 function parseArgs(): CliArgs {
@@ -29,6 +35,7 @@ function parseArgs(): CliArgs {
 
   let projectPath = process.cwd();
   let specificSpecialists: SpecialistRole[] | undefined;
+  let persona: PersonaRole | undefined;
   const requestParts: string[] = [];
 
   let i = 0;
@@ -41,6 +48,13 @@ function parseArgs(): CliArgs {
         .split(",")
         .map((s) => s.trim())
         .filter((s) => VALID_ROLES.includes(s as SpecialistRole)) as SpecialistRole[];
+    } else if (args[i] === "--persona" || args[i] === "-r") {
+      const raw = (args[++i] ?? "").trim() as PersonaRole;
+      if (VALID_PERSONAS.includes(raw)) {
+        persona = raw;
+      } else {
+        console.error(`Warning: Unknown persona "${raw}". Valid values: ${VALID_PERSONAS.join(", ")}\n`);
+      }
     } else {
       requestParts.push(args[i]);
     }
@@ -54,7 +68,7 @@ function parseArgs(): CliArgs {
     process.exit(1);
   }
 
-  return { projectPath, userRequest, specificSpecialists };
+  return { projectPath, userRequest, specificSpecialists, persona };
 }
 
 function printHelp(): void {
@@ -66,9 +80,10 @@ USAGE:
   npx tsx src/index.ts [options] "your request"
 
 OPTIONS:
-  --project,     -p <path>   Path to target project (default: current directory)
-  --specialists, -s <list>   Comma-separated list of specific specialists
-  --help,        -h          Show this help message
+  --project,     -p <path>     Path to target project (default: current directory)
+  --specialists, -s <list>     Comma-separated list of specific specialists
+  --persona,     -r <persona>  Persona profile to shape the Orchestrator output
+  --help,        -h            Show this help message
 
 AVAILABLE SPECIALISTS:
   Core:        radar, engine, canvas
@@ -76,10 +91,20 @@ AVAILABLE SPECIALISTS:
                backend-dev, frontend-dev, mobile-dev
   Operations:  devops, security, qa, tech-writer, ai-ml, performance
 
+AVAILABLE PERSONAS:
+  new-dev        Guided, educational, step-by-step explanations for newcomers
+  senior-dev     Concise and technical — patterns, tradeoffs, edge cases
+  tech-migrator  Migration planning — current→target state, phased strategy
+  task-executor  Direct implementation — production-ready code, no overhead
+  tech-lead      Architectural decisions, ADRs, team impact, risk assessment
+  due-diligence  Risk analysis, technical debt, security, compliance signals
+
 EXAMPLES:
   npx tsx src/index.ts --project ~/my-project "Add JWT authentication"
   npx tsx src/index.ts "Analyze this project and create a roadmap"
   npx tsx src/index.ts -p ~/app -s backend-dev,security,qa "Implement Google login"
+  npx tsx src/index.ts -p ~/app --persona new-dev "Explain the authentication flow"
+  npx tsx src/index.ts -p ~/app --persona tech-lead "Migrate from REST to GraphQL"
 `);
 }
 
@@ -161,6 +186,98 @@ async function loadAgentDefinition(role: string): Promise<string> {
   return `# ${role}\n\n_Agent definition not found._\n`;
 }
 
+// ─── Persona context blocks ───────────────────────────────────────────────────
+
+function buildPersonaBlock(persona: PersonaRole): string {
+  const blocks: Record<PersonaRole, string> = {
+    "new-dev": `## Persona Context
+
+**Persona: New Developer**
+
+You are guiding a developer who is new to this codebase (and possibly new to the technology stack). Adapt the crew output to be educational and practical:
+
+- Prefer step-by-step explanations over terse instructions
+- Include context for *why* decisions are made, not just *what* to do
+- Flag unfamiliar concepts with brief explanations (e.g. "A JWT is a signed token that…")
+- Scaffold code examples with detailed inline comments
+- Highlight common pitfalls for newcomers
+- Suggest learning resources where relevant
+- Break complex tasks into small, verifiable milestones`,
+
+    "senior-dev": `## Persona Context
+
+**Persona: Senior Developer**
+
+You are briefing a senior engineer who values depth and precision. Tune the output accordingly:
+
+- Skip introductory explanations — go straight to technical substance
+- Highlight design tradeoffs, edge cases, and non-obvious decisions
+- Reference patterns by name (CQRS, Saga, Circuit Breaker, Strangler Fig, etc.)
+- Flag performance, security, and concurrency implications explicitly
+- Suggest alternatives and explain why the recommended approach wins
+- Keep prose minimal; prefer structured lists and code snippets
+- Assume familiarity with the stack — do not explain common library APIs`,
+
+    "tech-migrator": `## Persona Context
+
+**Persona: Tech Migrator**
+
+The team is migrating from one technology, framework, or architecture to another. Shape the output for migration planning:
+
+- Map current state → target state for each affected area
+- Identify breaking changes and compatibility risks
+- Propose a phased migration strategy (strangler fig, feature flags, parallel run)
+- Flag data migration requirements and rollback plans
+- Surface deprecated APIs or patterns that must be replaced
+- Estimate migration complexity per component (Low / Medium / High)
+- Highlight integration points that need renegotiation with other teams`,
+
+    "task-executor": `## Persona Context
+
+**Persona: Task Executor**
+
+The engineer needs to implement this feature immediately with minimal overhead. Optimize for execution speed:
+
+- Produce production-ready code snippets, not pseudocode
+- Minimize explanation — show the implementation directly
+- Output tasks in dependency order (prerequisites first)
+- Include exact file paths, function signatures, and test assertions
+- Flag only blockers or non-obvious dependencies
+- Avoid architectural debates — choose the most pragmatic option
+- End each step with a concrete verification command or test`,
+
+    "tech-lead": `## Persona Context
+
+**Persona: Tech Lead**
+
+You are advising a tech lead who owns the technical direction for a team. Frame the output for decision-making and communication:
+
+- Emphasize architectural decisions and their team-wide impact
+- Include ADR-style reasoning (Context / Decision / Consequences) for key choices
+- Surface cross-team dependencies and integration points
+- Assess risks and propose mitigations the team can discuss
+- Highlight what needs review or sign-off before implementation begins
+- Consider maintainability, onboarding cost, and long-term ownership
+- Suggest where to create tickets, spike tasks, or design reviews`,
+
+    "due-diligence": `## Persona Context
+
+**Persona: Due Diligence**
+
+This analysis is being used for technical due diligence (acquisition, audit, or compliance review). Focus on risk and quality signals:
+
+- Assess technical debt level and its business impact
+- Surface security vulnerabilities and compliance gaps (OWASP, GDPR, SOC2, HIPAA)
+- Evaluate dependency health (outdated packages, abandoned libraries, license risks)
+- Identify single points of failure and operational risks
+- Summarize code quality signals (test coverage, linting, documentation, CI/CD maturity)
+- Estimate the engineering effort to bring the codebase to production-grade quality
+- Produce a structured risk register: Risk / Severity / Likelihood / Recommended Action`,
+  };
+
+  return blocks[persona];
+}
+
 // ─── Progress logging ─────────────────────────────────────────────────────────
 
 function log(emoji: string, message: string): void {
@@ -170,7 +287,7 @@ function log(emoji: string, message: string): void {
 // ─── Main flow ────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  const { projectPath, userRequest, specificSpecialists } = parseArgs();
+  const { projectPath, userRequest, specificSpecialists, persona } = parseArgs();
 
   console.log("\n╔══════════════════════════════════════════════════╗");
   console.log("║         JAY CREW — Multi-Agent AI Team          ║");
@@ -178,6 +295,7 @@ async function main(): Promise<void> {
 
   log("📁", `Project: ${projectPath}`);
   log("💬", `Request: "${userRequest}"`);
+  if (persona) log("🎭", `Persona: ${persona}`);
   console.log("");
 
   // ── Scan target project ───────────────────────────────────────────────────────
@@ -185,7 +303,8 @@ async function main(): Promise<void> {
   const start = Date.now();
   const snapshot = await buildProjectSnapshot(projectPath);
   const projectContext = buildProjectContext(snapshot);
-  log("✅", `${snapshot.stats.totalFiles} files scanned in ${((Date.now() - start) / 1000).toFixed(1)}s`);
+  const { p0, p1, p2 } = snapshot.stats.priorityBreakdown;
+  log("✅", `${snapshot.stats.totalFiles} files scanned in ${((Date.now() - start) / 1000).toFixed(1)}s — sampled ${p0 + p1 + p2} sources (${p0} P0 + ${p1} P1 + ${p2} P2)`);
   console.log("");
 
   // ── Select specialists ────────────────────────────────────────────────────────
@@ -206,7 +325,7 @@ async function main(): Promise<void> {
   // ── Build context file ────────────────────────────────────────────────────────
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
   const outputFile = `crew-context-${timestamp}.md`;
-  const content = buildContextFile(snapshot, projectContext, userRequest, specialists, orchestratorDef, agentDefs);
+  const content = buildContextFile(snapshot, projectContext, userRequest, specialists, orchestratorDef, agentDefs, persona);
 
   await fs.writeFile(outputFile, content, "utf8");
 
@@ -226,13 +345,18 @@ function buildContextFile(
   userRequest: string,
   specialists: SpecialistRole[],
   orchestratorDef: string,
-  agentDefs: Array<{ role: string; definition: string }>
+  agentDefs: Array<{ role: string; definition: string }>,
+  persona?: PersonaRole
 ): string {
   const timestamp = new Date().toISOString();
 
   const agentSection = agentDefs
     .map(({ definition }) => `---\n\n${definition}`)
     .join("\n\n");
+
+  const personaSection = persona
+    ? `\n\n${buildPersonaBlock(persona)}\n`
+    : "";
 
   return `# Jay Crew — Project Briefing
 > Project: **${snapshot.projectName}** · Generated: ${timestamp}
@@ -252,7 +376,7 @@ The AI will act as the Orchestrator, run each specialist's X-Ray, and produce a 
 ## User Request
 
 > ${userRequest}
-
+${personaSection}
 ---
 
 ## Suggested Crew

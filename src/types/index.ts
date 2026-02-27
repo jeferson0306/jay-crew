@@ -13,6 +13,7 @@ export interface FileStats {
   totalBytes: number;
   byExtension: Record<string, number>;
   largestFiles: Array<{ path: string; size: number }>;
+  priorityBreakdown: { p0: number; p1: number; p2: number };
 }
 
 export interface ProjectSnapshot {
@@ -44,3 +45,13 @@ export type SpecialistRole =
   | "tech-writer"        // Docs, README, Swagger/OpenAPI
   | "ai-ml"              // LLMs, Embeddings, RAG, ML Pipelines
   | "performance";       // Optimization, Scalability, Cost
+
+// ─── Persona profiles for Orchestrator output shaping ─────────────────────────
+
+export type PersonaRole =
+  | "new-dev"        // Guided, educational, step-by-step
+  | "senior-dev"     // Concise, technical depth, patterns & tradeoffs
+  | "tech-migrator"  // Migration planning, current→target state
+  | "task-executor"  // Direct implementation, production-ready code
+  | "tech-lead"      // Architectural decisions, ADRs, team impact
+  | "due-diligence"; // Risk analysis, tech debt, security, compliance

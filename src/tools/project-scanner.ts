@@ -47,7 +47,64 @@ const ENTRY_POINT_STEMS = [
 const CONFIG_FILE_CAP = 8 * 1024;  // 8 KB
 const SOURCE_FILE_CAP = 4 * 1024;  // 4 KB
 const MAX_DEPTH = 8;
-const MAX_SOURCE_SAMPLES = 12;
+const MAX_SOURCE_SAMPLES = 30;
+const MAX_TEST_FILES = 3;
+
+// ─── Priority classifier ──────────────────────────────────────────────────────
+
+/**
+ * Classifies a source file into a priority tier:
+ *   P0 — always include: migrations, schemas, architecture decision records, docs
+ *   P1 — prefer: controllers, services, auth, middleware, store/context
+ *   P2 — fill remaining slots: all other source files (sorted by size desc)
+ */
+function classifyFilePriority(filePath: string): 0 | 1 | 2 {
+  const name = path.basename(filePath);
+  const nameLower = name.toLowerCase();
+  const stem = nameLower.replace(/\.[^.]+$/, ""); // strip extension
+  const dirLower = filePath.toLowerCase();
+
+  // ── P0: schemas, migrations, architecture docs ────────────────────────────
+  if (
+    stem.startsWith("readme") ||
+    stem.startsWith("architecture") ||
+    stem.startsWith("adr") ||
+    stem.startsWith("decisions") ||
+    stem.startsWith("changelog") ||
+    nameLower === "schema.prisma" ||
+    nameLower.endsWith(".sql") ||
+    nameLower.includes(".migration.") ||
+    nameLower.includes(".migrate.") ||
+    dirLower.includes("/migration/") ||
+    dirLower.includes("/migrations/") ||
+    dirLower.includes("/flyway/")
+  ) {
+    return 0;
+  }
+
+  // ── P1: core logic files ──────────────────────────────────────────────────
+  if (
+    /resource|controller|router|handler|route|resolver/.test(nameLower) ||
+    /service|repository|store|manager/.test(nameLower) ||
+    /auth|security|jwt|middleware|guard|context|provider/.test(nameLower)
+  ) {
+    return 1;
+  }
+
+  return 2;
+}
+
+function isTestFile(filePath: string): boolean {
+  const nameLower = path.basename(filePath).toLowerCase();
+  return (
+    /\.(spec|test)\.[^.]+$/.test(nameLower) ||
+    nameLower.includes(".e2e.") ||
+    filePath.includes("/__tests__/") ||
+    filePath.includes("/test/") ||
+    filePath.includes("/tests/") ||
+    filePath.includes("/spec/")
+  );
+}
 
 // ─── Scan functions ───────────────────────────────────────────────────────────
 
@@ -102,7 +159,7 @@ async function walkDirectory(
 
 function collectFileStats(
   allFiles: Array<{ path: string; size: number; ext: string }>
-): FileStats {
+): Omit<FileStats, "priorityBreakdown"> {
   const byExtension: Record<string, number> = {};
   let totalBytes = 0;
 
@@ -168,26 +225,49 @@ function detectEntryPoints(
 }
 
 async function sampleSourceFiles(
-  allFiles: Array<{ path: string; size: number; ext: string }>,
-  entryPoints: string[]
-): Promise<Record<string, string>> {
-  const result: Record<string, string> = {};
+  allFiles: Array<{ path: string; size: number; ext: string }>
+): Promise<{ samples: Record<string, string>; breakdown: { p0: number; p1: number; p2: number } }> {
   const sourceFiles = allFiles.filter((f) => SOURCE_EXTENSIONS.has(f.ext));
 
-  // Prioritize entry points
-  const prioritized = [
-    ...sourceFiles.filter((f) => entryPoints.includes(f.path)),
-    ...sourceFiles.filter((f) => !entryPoints.includes(f.path)),
-  ];
+  // Partition by priority
+  const p0Files = sourceFiles.filter((f) => classifyFilePriority(f.path) === 0);
+  const p1All   = sourceFiles.filter((f) => classifyFilePriority(f.path) === 1);
+  const p2All   = sourceFiles.filter((f) => classifyFilePriority(f.path) === 2);
 
-  for (const f of prioritized) {
-    if (Object.keys(result).length >= MAX_SOURCE_SAMPLES) break;
+  // Within P1: separate test files (max 3), prefer spec/e2e
+  const p1NonTest = p1All.filter((f) => !isTestFile(f.path));
+  const p1Tests   = p1All.filter((f) => isTestFile(f.path));
+
+  // P2: sort by size descending to prefer more substantial files
+  const p2Sorted = [...p2All].sort((a, b) => b.size - a.size);
+
+  // Build ordered candidate list: P0 → P1 non-test → P1 test (capped) → P2
+  const ordered = [...p0Files, ...p1NonTest, ...p1Tests, ...p2Sorted];
+
+  const samples: Record<string, string> = {};
+  const breakdown = { p0: 0, p1: 0, p2: 0 };
+  let testCount = 0;
+
+  for (const f of ordered) {
+    if (Object.keys(samples).length >= MAX_SOURCE_SAMPLES) break;
+
+    // Enforce global test-file cap
+    if (isTestFile(f.path)) {
+      if (testCount >= MAX_TEST_FILES) continue;
+      testCount++;
+    }
+
     try {
       const raw = await fs.readFile(f.path, "utf8");
-      result[f.path] = raw.slice(0, SOURCE_FILE_CAP);
+      samples[f.path] = raw.slice(0, SOURCE_FILE_CAP);
+      const p = classifyFilePriority(f.path);
+      if (p === 0) breakdown.p0++;
+      else if (p === 1) breakdown.p1++;
+      else breakdown.p2++;
     } catch {}
   }
-  return result;
+
+  return { samples, breakdown };
 }
 
 // ─── Main entry point ─────────────────────────────────────────────────────────
@@ -195,17 +275,17 @@ async function sampleSourceFiles(
 export async function buildProjectSnapshot(projectPath: string): Promise<ProjectSnapshot> {
   const allFiles: Array<{ path: string; size: number; ext: string }> = [];
   const tree = await walkDirectory(projectPath, 0, allFiles);
-  const stats = collectFileStats(allFiles);
+  const baseStats = collectFileStats(allFiles);
   const configFiles = await readConfigFiles(allFiles);
   const depFiles = await readDepFiles(allFiles);
   const entryPoints = detectEntryPoints(allFiles);
-  const sourceSamples = await sampleSourceFiles(allFiles, entryPoints);
+  const { samples: sourceSamples, breakdown: priorityBreakdown } = await sampleSourceFiles(allFiles);
 
   return {
     projectPath,
     projectName: path.basename(projectPath),
     tree,
-    stats,
+    stats: { ...baseStats, priorityBreakdown },
     configFiles,
     depFiles,
     sourceSamples,
@@ -217,11 +297,13 @@ export async function buildProjectSnapshot(projectPath: string): Promise<Project
 
 export function buildProjectContext(snapshot: ProjectSnapshot): string {
   const treeOutput = projectTreeString(snapshot.tree).slice(0, 6000);
+  const { p0, p1, p2 } = snapshot.stats.priorityBreakdown;
 
   const statsLines = [
     `- Total files: ${snapshot.stats.totalFiles}`,
     `- Total size: ${formatBytes(snapshot.stats.totalBytes)}`,
     `- Entry points: ${snapshot.entryPoints.map((p) => path.relative(snapshot.projectPath, p)).join(", ") || "none detected"}`,
+    `- Sampled sources: ${p0} P0 (schemas/migrations/docs) + ${p1} P1 (core logic) + ${p2} P2 (other) = ${p0 + p1 + p2} files`,
   ].join("\n");
 
   const topExt = Object.entries(snapshot.stats.byExtension)
@@ -248,7 +330,9 @@ export function buildProjectContext(snapshot: ProjectSnapshot): string {
     .map(([filePath, content]) => {
       const rel = path.relative(snapshot.projectPath, filePath);
       const ext = path.extname(filePath).slice(1) || "text";
-      return `### ${rel}\n\`\`\`${ext}\n${content}\n\`\`\``;
+      const priority = classifyFilePriority(filePath);
+      const tag = priority === 0 ? " [P0]" : priority === 1 ? " [P1]" : "";
+      return `### ${rel}${tag}\n\`\`\`${ext}\n${content}\n\`\`\``;
     })
     .join("\n\n");
 

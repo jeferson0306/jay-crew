@@ -109,7 +109,21 @@ npx tsx src/index.ts [options] "your request"
 |------|-------|-------------|
 | `--project <path>` | `-p` | Path to the target project (default: current directory) |
 | `--specialists <list>` | `-s` | Comma-separated list of specific specialists to force |
+| `--persona <type>` | `-r` | Persona profile to shape the Orchestrator output |
 | `--help` | `-h` | Show help message |
+
+### Personas
+
+The `--persona` flag injects a context block into the generated file that instructs the Orchestrator to adapt its output style and depth for a specific audience.
+
+| Persona | Description |
+|---------|-------------|
+| `new-dev` | Guided, educational, step-by-step explanations for newcomers |
+| `senior-dev` | Concise and technical — patterns, tradeoffs, edge cases |
+| `tech-migrator` | Migration planning — current→target state, phased strategy |
+| `task-executor` | Direct implementation — production-ready code, no overhead |
+| `tech-lead` | Architectural decisions, ADRs, team impact, risk assessment |
+| `due-diligence` | Risk analysis, technical debt, security, compliance signals |
 
 ### Examples
 
@@ -125,6 +139,24 @@ npx tsx src/index.ts -p ~/my-app -s backend-dev,security,qa "Implement OAuth2 wi
 
 # Full-stack feature planning
 npx tsx src/index.ts -p ~/my-saas "Add a subscription billing system with Stripe"
+
+# Onboard a new developer to an existing feature
+npx tsx src/index.ts -p ~/my-app --persona new-dev "Explain how the authentication flow works"
+
+# Get a senior-level deep-dive before a refactor
+npx tsx src/index.ts -p ~/my-api --persona senior-dev "Migrate from REST to GraphQL"
+
+# Plan a framework migration
+npx tsx src/index.ts -p ~/my-app --persona tech-migrator "Migrate from Express to Fastify"
+
+# Get straight to implementation with no fluff
+npx tsx src/index.ts -p ~/my-app --persona task-executor "Add rate limiting to the API"
+
+# Prepare a technical decision for the team
+npx tsx src/index.ts -p ~/my-saas --persona tech-lead "Evaluate adding a message queue"
+
+# Audit the codebase for acquisition due diligence
+npx tsx src/index.ts -p ~/their-project --persona due-diligence "Full technical audit"
 ```
 
 ### Output
@@ -134,6 +166,8 @@ A `crew-context-{timestamp}.md` file is generated containing everything the AI n
 ```
 crew-context-2026-02-27T10-30-00.md
 ├── Project snapshot (tree, configs, dependencies, source samples)
+│   └── Source files selected by priority: P0 (schemas/docs) → P1 (core logic) → P2 (other)
+├── Persona context block (if --persona is used)
 ├── Suggested crew for the task
 ├── Orchestrator definition (Phase 1 + Phase 2 format)
 └── Each selected specialist's definition (identity + X-Ray format)
