@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import path from "node:path";
 import { formatBytes, projectTreeString } from "./path-utils.js";
-import type { FileNode, FileStats, ProjectSnapshot } from "../types/index.js";
+import type { FileNode, FileStats, ProjectSnapshot, SourceSampleMeta } from "../types/index.js";
 
 // ─── Scanner configuration ────────────────────────────────────────────────────
 
@@ -44,24 +44,27 @@ const ENTRY_POINT_STEMS = [
   "index", "main", "app", "server", "cli", "start", "entry",
 ];
 
-const CONFIG_FILE_CAP = 8 * 1024;  // 8 KB
-const SOURCE_FILE_CAP = 4 * 1024;  // 4 KB
-const MAX_DEPTH = 8;
-const MAX_SOURCE_SAMPLES = 30;
-const MAX_TEST_FILES = 3;
+const TS_JS_EXTS = new Set([".ts", ".tsx", ".js", ".jsx", ".mts", ".mjs", ".cjs"]);
+const JVM_EXTS   = new Set([".java", ".kt"]);
+
+const CONFIG_FILE_CAP     = 8 * 1024;   // 8 KB — for config/dep files
+const P1_FULL_CAP         = 4 * 1024;   // 4 KB — P1 files read fully below this
+const CONTEXT_BUDGET_BYTES = 200_000;   // 200 KB — total source samples budget
+const MAX_TEST_FILES      = 3;
+const MAX_DEPTH           = 8;
 
 // ─── Priority classifier ──────────────────────────────────────────────────────
 
 /**
  * Classifies a source file into a priority tier:
- *   P0 — always include: migrations, schemas, architecture decision records, docs
- *   P1 — prefer: controllers, services, auth, middleware, store/context
- *   P2 — fill remaining slots: all other source files (sorted by size desc)
+ *   P0 — always include fully: migrations, schemas, architecture docs
+ *   P1 — prefer full read: controllers, services, auth, middleware, store/context
+ *   P2 — skeletal read only: all other source files
  */
 function classifyFilePriority(filePath: string): 0 | 1 | 2 {
-  const name = path.basename(filePath);
+  const name     = path.basename(filePath);
   const nameLower = name.toLowerCase();
-  const stem = nameLower.replace(/\.[^.]+$/, ""); // strip extension
+  const stem     = nameLower.replace(/\.[^.]+$/, "");
   const dirLower = filePath.toLowerCase();
 
   // ── P0: schemas, migrations, architecture docs ────────────────────────────
@@ -104,6 +107,172 @@ function isTestFile(filePath: string): boolean {
     filePath.includes("/tests/") ||
     filePath.includes("/spec/")
   );
+}
+
+// ─── Skeletal reading ─────────────────────────────────────────────────────────
+
+const SKELETON_HEADER = "// [SKELETON] Full file not shown. Structural summary only.";
+
+/**
+ * Extracts the structural skeleton of a source file.
+ * P0 files are never skeleton'd. Used for P1 files > 4KB and all P2 files.
+ */
+export function extractSkeleton(content: string, filePath: string): string {
+  const ext   = path.extname(filePath).toLowerCase();
+  const lines = content.split("\n");
+
+  // SQL files: always structural, never need skeletonizing
+  if (ext === ".sql") return content;
+
+  if (JVM_EXTS.has(ext))   return extractJvmSkeleton(lines);
+  if (TS_JS_EXTS.has(ext)) return extractTsSkeleton(lines);
+
+  // Default: first 20 lines + last 5
+  const head = lines.slice(0, 20);
+  const tail = lines.slice(-5);
+  const body = lines.length > 25 ? [...head, "// ...", ...tail] : lines;
+  return [SKELETON_HEADER, ...body].join("\n");
+}
+
+/** Java / Kotlin skeleton: package, imports (max 10), class declaration, member signatures. */
+function extractJvmSkeleton(lines: string[]): string {
+  const result: string[] = [SKELETON_HEADER];
+  let importCount = 0;
+  let braceDepth  = 0;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const opens   = (line.match(/\{/g) ?? []).length;
+    const closes  = (line.match(/\}/g) ?? []).length;
+    const prevDepth = braceDepth;
+    braceDepth += opens - closes;
+
+    // Package declaration
+    if (prevDepth === 0 && trimmed.startsWith("package ")) {
+      result.push(line);
+      continue;
+    }
+
+    // Import statements (max 10)
+    if (prevDepth === 0 && trimmed.startsWith("import ")) {
+      if (importCount < 10)       result.push(line);
+      else if (importCount === 10) result.push("// ... (more imports)");
+      importCount++;
+      continue;
+    }
+
+    // Depth 0: top-level annotations and class/interface/enum declarations
+    if (prevDepth === 0) {
+      if (
+        trimmed.startsWith("@") ||
+        /\b(class|interface|enum|record|@interface)\b/.test(trimmed)
+      ) {
+        result.push(line);
+      }
+      continue;
+    }
+
+    // Depth 1: inside the class body — show signatures, skip method bodies
+    if (prevDepth === 1) {
+      if (trimmed.startsWith("@")) {
+        result.push(line);
+        continue;
+      }
+
+      const isMember =
+        /\b(public|private|protected|static|final|abstract|synchronized|override|native|default)\b/.test(trimmed) ||
+        /^\w[\w<>\[\].,\s]+\s+\w+\s*[({;]/.test(trimmed);
+
+      if (isMember) {
+        if (opens > 0 && braceDepth > 1) {
+          // Method with body — show just the signature line
+          const braceIdx = line.indexOf("{");
+          result.push(line.substring(0, braceIdx).trimEnd() + " { ... }");
+        } else {
+          result.push(line);
+        }
+        continue;
+      }
+
+      // Closing brace of the class body
+      if (trimmed === "}" || trimmed === "};") {
+        result.push(line);
+      }
+    }
+  }
+
+  return result.join("\n");
+}
+
+/** TypeScript / JavaScript skeleton: imports (max 10), top-level exports, interface/type definitions. */
+function extractTsSkeleton(lines: string[]): string {
+  const result: string[] = [SKELETON_HEADER];
+  let importCount  = 0;
+  let inTypeBlock  = false;
+  let typeDepth    = 0;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const indent  = line.length - line.trimStart().length;
+    const opens   = (line.match(/\{/g) ?? []).length;
+    const closes  = (line.match(/\}/g) ?? []).length;
+
+    // ── Inside an interface/type block: include fully ─────────────────────
+    if (inTypeBlock) {
+      result.push(line);
+      typeDepth += opens - closes;
+      if (typeDepth <= 0) inTypeBlock = false;
+      continue;
+    }
+
+    // ── Only consider top-level lines (no indentation) ────────────────────
+    // Exception: allow tabs or 0 spaces to handle files using tabs
+    if (indent > 0) continue;
+
+    // Import statements (max 10)
+    if (trimmed.startsWith("import ")) {
+      if (importCount < 10)        result.push(line);
+      else if (importCount === 10) result.push("// ... (more imports)");
+      importCount++;
+      continue;
+    }
+
+    // Interface / type blocks: include the whole block
+    if (/^(export\s+)?(interface|type)\s/.test(trimmed)) {
+      if (trimmed.includes("{")) {
+        inTypeBlock = true;
+        typeDepth   = opens - closes;
+        result.push(line);
+        if (typeDepth <= 0) inTypeBlock = false;
+      } else {
+        // Single-line type alias: type Foo = string;
+        result.push(line);
+      }
+      continue;
+    }
+
+    // Top-level declarations: show signature only (no body)
+    const isTopLevel =
+      trimmed.startsWith("export ") ||
+      trimmed.startsWith("class ")  ||
+      trimmed.startsWith("abstract class ") ||
+      trimmed.startsWith("function ") ||
+      trimmed.startsWith("async function ") ||
+      trimmed.startsWith("const ")  ||
+      trimmed.startsWith("let ")    ||
+      trimmed.startsWith("@");
+
+    if (isTopLevel) {
+      const braceIdx = line.indexOf("{");
+      if (braceIdx >= 0) {
+        result.push(line.substring(0, braceIdx).trimEnd() + " { ... }");
+      } else {
+        result.push(line);
+      }
+    }
+  }
+
+  return result.join("\n");
 }
 
 // ─── Scan functions ───────────────────────────────────────────────────────────
@@ -159,7 +328,7 @@ async function walkDirectory(
 
 function collectFileStats(
   allFiles: Array<{ path: string; size: number; ext: string }>
-): Omit<FileStats, "priorityBreakdown"> {
+): FileStats {
   const byExtension: Record<string, number> = {};
   let totalBytes = 0;
 
@@ -174,12 +343,7 @@ function collectFileStats(
     .slice(0, 10)
     .map((f) => ({ path: f.path, size: f.size }));
 
-  return {
-    totalFiles: allFiles.length,
-    totalBytes,
-    byExtension,
-    largestFiles,
-  };
+  return { totalFiles: allFiles.length, totalBytes, byExtension, largestFiles };
 }
 
 async function readConfigFiles(
@@ -187,8 +351,7 @@ async function readConfigFiles(
 ): Promise<Record<string, string>> {
   const result: Record<string, string> = {};
   for (const f of allFiles) {
-    const base = path.basename(f.path);
-    if (!CONFIG_FILE_NAMES.has(base)) continue;
+    if (!CONFIG_FILE_NAMES.has(path.basename(f.path))) continue;
     try {
       const raw = await fs.readFile(f.path, "utf8");
       result[f.path] = raw.slice(0, CONFIG_FILE_CAP);
@@ -202,8 +365,7 @@ async function readDepFiles(
 ): Promise<Record<string, string>> {
   const result: Record<string, string> = {};
   for (const f of allFiles) {
-    const base = path.basename(f.path);
-    if (!DEP_FILE_NAMES.has(base)) continue;
+    if (!DEP_FILE_NAMES.has(path.basename(f.path))) continue;
     try {
       const raw = await fs.readFile(f.path, "utf8");
       result[f.path] = raw.slice(0, CONFIG_FILE_CAP);
@@ -226,30 +388,33 @@ function detectEntryPoints(
 
 async function sampleSourceFiles(
   allFiles: Array<{ path: string; size: number; ext: string }>
-): Promise<{ samples: Record<string, string>; breakdown: { p0: number; p1: number; p2: number } }> {
+): Promise<{ samples: Record<string, string>; meta: SourceSampleMeta }> {
   const sourceFiles = allFiles.filter((f) => SOURCE_EXTENSIONS.has(f.ext));
 
   // Partition by priority
-  const p0Files = sourceFiles.filter((f) => classifyFilePriority(f.path) === 0);
-  const p1All   = sourceFiles.filter((f) => classifyFilePriority(f.path) === 1);
-  const p2All   = sourceFiles.filter((f) => classifyFilePriority(f.path) === 2);
+  const p0Files   = sourceFiles.filter((f) => classifyFilePriority(f.path) === 0);
+  const p1All     = sourceFiles.filter((f) => classifyFilePriority(f.path) === 1);
+  const p2All     = sourceFiles.filter((f) => classifyFilePriority(f.path) === 2);
 
-  // Within P1: separate test files (max 3), prefer spec/e2e
+  // P1: test files capped, non-test first
   const p1NonTest = p1All.filter((f) => !isTestFile(f.path));
-  const p1Tests   = p1All.filter((f) => isTestFile(f.path));
+  const p1Tests   = p1All.filter((f) =>  isTestFile(f.path));
 
-  // P2: sort by size descending to prefer more substantial files
-  const p2Sorted = [...p2All].sort((a, b) => b.size - a.size);
+  // P2: sorted by size descending so larger (more substantial) files go first
+  const p2Sorted  = [...p2All].sort((a, b) => b.size - a.size);
 
-  // Build ordered candidate list: P0 → P1 non-test → P1 test (capped) → P2
+  // Process in priority order: P0 → P1 non-test → P1 test (capped) → P2
   const ordered = [...p0Files, ...p1NonTest, ...p1Tests, ...p2Sorted];
 
   const samples: Record<string, string> = {};
-  const breakdown = { p0: 0, p1: 0, p2: 0 };
-  let testCount = 0;
+  let budgetUsed  = 0;
+  let testCount   = 0;
+  let p0Count = 0, p1Count = 0, p2Count = 0;
+  let fullCount = 0, skeletalCount = 0;
 
   for (const f of ordered) {
-    if (Object.keys(samples).length >= MAX_SOURCE_SAMPLES) break;
+    // Stop once budget is fully exhausted
+    if (budgetUsed >= CONTEXT_BUDGET_BYTES) break;
 
     // Enforce global test-file cap
     if (isTestFile(f.path)) {
@@ -257,39 +422,77 @@ async function sampleSourceFiles(
       testCount++;
     }
 
+    const priority = classifyFilePriority(f.path);
+
     try {
       const raw = await fs.readFile(f.path, "utf8");
-      samples[f.path] = raw.slice(0, SOURCE_FILE_CAP);
-      const p = classifyFilePriority(f.path);
-      if (p === 0) breakdown.p0++;
-      else if (p === 1) breakdown.p1++;
-      else breakdown.p2++;
+      let content: string;
+      let skeletal: boolean;
+
+      if (priority === 0) {
+        // P0: always read fully — migrations, schemas, architecture docs must never be truncated
+        content  = raw;
+        skeletal = false;
+      } else if (priority === 1 && raw.length <= P1_FULL_CAP) {
+        // P1 small: read fully (skeleton of a 2KB file adds no value)
+        content  = raw;
+        skeletal = false;
+      } else {
+        // P1 large or P2: skeletal reading
+        content  = extractSkeleton(raw, f.path);
+        skeletal = true;
+      }
+
+      // Skip if this file alone would exceed the remaining budget
+      // (only applies when we already have content; never skip P0)
+      if (priority > 0 && budgetUsed + content.length > CONTEXT_BUDGET_BYTES) continue;
+
+      samples[f.path] = content;
+      budgetUsed += content.length;
+
+      if (skeletal) skeletalCount++; else fullCount++;
+      if (priority === 0) p0Count++;
+      else if (priority === 1) p1Count++;
+      else p2Count++;
+
     } catch {}
   }
 
-  return { samples, breakdown };
+  return {
+    samples,
+    meta: {
+      totalInContext: p0Count + p1Count + p2Count,
+      fullCount,
+      skeletalCount,
+      budgetUsedBytes: budgetUsed,
+      p0Count,
+      p1Count,
+      p2Count,
+    },
+  };
 }
 
 // ─── Main entry point ─────────────────────────────────────────────────────────
 
 export async function buildProjectSnapshot(projectPath: string): Promise<ProjectSnapshot> {
   const allFiles: Array<{ path: string; size: number; ext: string }> = [];
-  const tree = await walkDirectory(projectPath, 0, allFiles);
-  const baseStats = collectFileStats(allFiles);
+  const tree        = await walkDirectory(projectPath, 0, allFiles);
+  const stats       = collectFileStats(allFiles);
   const configFiles = await readConfigFiles(allFiles);
-  const depFiles = await readDepFiles(allFiles);
+  const depFiles    = await readDepFiles(allFiles);
   const entryPoints = detectEntryPoints(allFiles);
-  const { samples: sourceSamples, breakdown: priorityBreakdown } = await sampleSourceFiles(allFiles);
+  const { samples: sourceSamples, meta: sourceMeta } = await sampleSourceFiles(allFiles);
 
   return {
     projectPath,
     projectName: path.basename(projectPath),
     tree,
-    stats: { ...baseStats, priorityBreakdown },
+    stats,
     configFiles,
     depFiles,
     sourceSamples,
     entryPoints,
+    sourceMeta,
   };
 }
 
@@ -297,13 +500,17 @@ export async function buildProjectSnapshot(projectPath: string): Promise<Project
 
 export function buildProjectContext(snapshot: ProjectSnapshot): string {
   const treeOutput = projectTreeString(snapshot.tree).slice(0, 6000);
-  const { p0, p1, p2 } = snapshot.stats.priorityBreakdown;
+  const m = snapshot.sourceMeta;
+  const budgetKb     = Math.round(m.budgetUsedBytes / 1024);
+  const budgetMaxKb  = Math.round(CONTEXT_BUDGET_BYTES / 1024);
 
   const statsLines = [
-    `- Total files: ${snapshot.stats.totalFiles}`,
+    `- Files scanned: ${snapshot.stats.totalFiles}`,
     `- Total size: ${formatBytes(snapshot.stats.totalBytes)}`,
     `- Entry points: ${snapshot.entryPoints.map((p) => path.relative(snapshot.projectPath, p)).join(", ") || "none detected"}`,
-    `- Sampled sources: ${p0} P0 (schemas/migrations/docs) + ${p1} P1 (core logic) + ${p2} P2 (other) = ${p0 + p1 + p2} files`,
+    `- Files in context: ${m.totalInContext} (${m.fullCount} full · ${m.skeletalCount} skeletal)`,
+    `- Context budget used: ${budgetKb} KB / ${budgetMaxKb} KB`,
+    `- Priority breakdown: ${m.p0Count} P0 (full) · ${m.p1Count} P1 (full/skel) · ${m.p2Count} P2 (skeletal)`,
   ].join("\n");
 
   const topExt = Object.entries(snapshot.stats.byExtension)
@@ -328,11 +535,13 @@ export function buildProjectContext(snapshot: ProjectSnapshot): string {
 
   const sourceSection = Object.entries(snapshot.sourceSamples)
     .map(([filePath, content]) => {
-      const rel = path.relative(snapshot.projectPath, filePath);
-      const ext = path.extname(filePath).slice(1) || "text";
+      const rel      = path.relative(snapshot.projectPath, filePath);
+      const ext      = path.extname(filePath).slice(1) || "text";
       const priority = classifyFilePriority(filePath);
-      const tag = priority === 0 ? " [P0]" : priority === 1 ? " [P1]" : "";
-      return `### ${rel}${tag}\n\`\`\`${ext}\n${content}\n\`\`\``;
+      const isSkel   = content.startsWith(SKELETON_HEADER);
+      const pTag     = priority === 0 ? "P0" : priority === 1 ? "P1" : "P2";
+      const mTag     = isSkel ? "skel" : "full";
+      return `### ${rel} [${pTag} · ${mTag}]\n\`\`\`${ext}\n${content}\n\`\`\``;
     })
     .join("\n\n");
 

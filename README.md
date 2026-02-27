@@ -53,6 +53,42 @@ Step 6 ──► Claude acts as the Orchestrator
 
 ---
 
+## Two-Step Workflow
+
+Jay Crew produces a **context file** — it does not produce the analysis itself. The analysis happens in the AI.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  STEP 1 — CLI (your machine)                                    │
+│                                                                 │
+│  npx tsx src/index.ts -p ~/my-app "Add JWT auth"                │
+│                                                                 │
+│  Output: crew-context-2026-02-27T10-30-00.md                    │
+│  ✓ File tree + config files + dependency list                   │
+│  ✓ Source files (full or skeletal, up to 200 KB budget)         │
+│  ✓ Agent definitions (Orchestrator + selected specialists)      │
+│  ✗ No AI calls. No analysis yet. Just structured context.       │
+└──────────────────────────────┬──────────────────────────────────┘
+                               │  paste the file
+                               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  STEP 2 — AI (Claude Code, claude.ai, or any AI assistant)      │
+│                                                                 │
+│  > "You are the Jay Crew Orchestrator.                          │
+│     Run the full crew analysis for the task described below."   │
+│                                                                 │
+│  ✓ Orchestrator reads the context and assembles the crew        │
+│  ✓ Each specialist runs their X-Ray analysis                    │
+│  ✓ Final Execution Plan synthesized from all X-Rays             │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+> **The CLI output (metrics like "56 files in context · 42 KB used") is not the analysis.**
+> It tells you what was packed into the context file. The actual multi-specialist report
+> is generated in Step 2 by the AI.
+
+---
+
 ## The Team
 
 ### Core Agents
@@ -80,6 +116,24 @@ Step 6 ──► Claude acts as the Orchestrator
 | `tech-writer` | `agents/specialists/tech-writer.md` | README, Swagger/OpenAPI, developer guides, changelogs |
 | `ai-ml` | `agents/specialists/ai-ml.md` | LLM integration, embeddings, RAG, ML pipelines |
 | `performance` | `agents/specialists/performance.md` | Profiling, caching, query optimization, scalability |
+
+---
+
+## Personas
+
+Use `--persona` (or `-r`) to shape how the Orchestrator presents its analysis.
+Each persona injects a context block that instructs the AI to adapt its tone, depth, and focus.
+
+| Persona | Best for | Example |
+|---------|----------|---------|
+| `new-dev` | Developer new to the codebase | `npx tsx src/index.ts -p ~/my-app --persona new-dev "Understand the codebase"` |
+| `senior-dev` | Refactor audit or deep technical review | `npx tsx src/index.ts -p ~/my-app --persona senior-dev "Audit for refactoring"` |
+| `tech-migrator` | Planning a stack or framework migration | `npx tsx src/index.ts -p ~/my-app --persona tech-migrator "Evaluate migration to microservices"` |
+| `task-executor` | Preparing context for an AI agent task | `npx tsx src/index.ts -p ~/my-app --persona task-executor "Add email notifications to orders"` |
+| `tech-lead` | Onboarding material or team briefing | `npx tsx src/index.ts -p ~/my-app --persona tech-lead "Generate team onboarding brief"` |
+| `due-diligence` | Evaluating a legacy or external codebase | `npx tsx src/index.ts -p ~/my-app --persona due-diligence "Assess production readiness"` |
+
+No `--persona` flag? The Orchestrator uses its default style — balanced, technical, and structured.
 
 ---
 
@@ -228,6 +282,50 @@ jay-crew/
 3. Add the keyword heuristics to `suggestSpecialists()` in `src/index.ts`
 
 That's it — no other changes needed.
+
+---
+
+## Full Workflow Example
+
+### Step 1 — Generate the context file
+
+```bash
+npx tsx src/index.ts \
+  --project ~/my-ecommerce \
+  --persona senior-dev \
+  "Audit the authentication flow and create an implementation plan for RBAC"
+```
+
+Output:
+```
+✅  96 files scanned in 0.0s — 56 files in context (11 full · 45 skel) · 42 KB used
+🧠  Crew selected: software-architect, security, backend-dev, engine
+✅  Context file saved: crew-context-2026-02-27T18-17-05.md
+```
+
+### Step 2 — Run the AI analysis
+
+Open the generated file and paste its full contents into Claude (claude.ai or Claude Code).
+
+Then send this message:
+
+> **"You are the Jay Crew Orchestrator. Run the full crew analysis for the task described below."**
+
+Claude will act as the Orchestrator, run each specialist's X-Ray, and produce a complete structured report.
+
+### What you get
+
+A full multi-specialist report with, for example:
+
+| Specialist | Delivers |
+|------------|----------|
+| `software-architect` | Architecture overview, component diagram, integration points |
+| `security` | Auth flow audit, OWASP gaps, RBAC risk assessment |
+| `backend-dev` | API contracts, DB schema changes, migration plan |
+| `engine` | Code quality, logic edge cases, refactoring priorities |
+| **Orchestrator** | **Phased Execution Plan** — all findings synthesized into actionable steps |
+
+All grounded in the actual code of your project, not generic advice.
 
 ---
 

@@ -13,7 +13,16 @@ export interface FileStats {
   totalBytes: number;
   byExtension: Record<string, number>;
   largestFiles: Array<{ path: string; size: number }>;
-  priorityBreakdown: { p0: number; p1: number; p2: number };
+}
+
+export interface SourceSampleMeta {
+  totalInContext: number;   // total files included in context
+  fullCount: number;        // files read fully
+  skeletalCount: number;    // files read as skeleton
+  budgetUsedBytes: number;  // total bytes consumed by source samples
+  p0Count: number;          // P0 files included (schemas/migrations/docs)
+  p1Count: number;          // P1 files included (core logic)
+  p2Count: number;          // P2 files included (other, skeletal)
 }
 
 export interface ProjectSnapshot {
@@ -25,6 +34,7 @@ export interface ProjectSnapshot {
   depFiles: Record<string, string>;
   sourceSamples: Record<string, string>;
   entryPoints: string[];
+  sourceMeta: SourceSampleMeta;
 }
 
 // ─── Available roles in Jay Crew ──────────────────────────────────────────────

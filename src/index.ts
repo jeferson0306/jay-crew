@@ -303,8 +303,9 @@ async function main(): Promise<void> {
   const start = Date.now();
   const snapshot = await buildProjectSnapshot(projectPath);
   const projectContext = buildProjectContext(snapshot);
-  const { p0, p1, p2 } = snapshot.stats.priorityBreakdown;
-  log("✅", `${snapshot.stats.totalFiles} files scanned in ${((Date.now() - start) / 1000).toFixed(1)}s — sampled ${p0 + p1 + p2} sources (${p0} P0 + ${p1} P1 + ${p2} P2)`);
+  const m = snapshot.sourceMeta;
+  const budgetKb = Math.round(m.budgetUsedBytes / 1024);
+  log("✅", `${snapshot.stats.totalFiles} files scanned in ${((Date.now() - start) / 1000).toFixed(1)}s — ${m.totalInContext} files in context (${m.fullCount} full · ${m.skeletalCount} skel) · ${budgetKb} KB used`);
   console.log("");
 
   // ── Select specialists ────────────────────────────────────────────────────────
