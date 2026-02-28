@@ -270,21 +270,25 @@ function boostCrewByPersona(specialists: SpecialistRole[], persona?: PersonaRole
 
 // ─── Load agent definition from markdown files ────────────────────────────────
 
-const AGENTS_DIR = path.join(
-  path.dirname(new URL(import.meta.url).pathname),
-  "..",
-  "agents"
-);
+const SCRIPT_DIR = path.dirname(new URL(import.meta.url).pathname);
+
+// Try multiple locations for agents (npm package vs development)
+const AGENTS_DIRS = [
+  path.join(SCRIPT_DIR, "agents"),      // dist/agents (npm package)
+  path.join(SCRIPT_DIR, "..", "agents"), // ../agents (development)
+];
 
 async function loadAgentDefinition(role: string): Promise<string> {
-  const candidates = [
-    path.join(AGENTS_DIR, "core", `${role}.md`),
-    path.join(AGENTS_DIR, "specialists", `${role}.md`),
-  ];
-  for (const candidate of candidates) {
-    try {
-      return await fs.readFile(candidate, "utf8");
-    } catch {}
+  for (const agentsDir of AGENTS_DIRS) {
+    const candidates = [
+      path.join(agentsDir, "core", `${role}.md`),
+      path.join(agentsDir, "specialists", `${role}.md`),
+    ];
+    for (const candidate of candidates) {
+      try {
+        return await fs.readFile(candidate, "utf8");
+      } catch {}
+    }
   }
   return `# ${role}\n\n_Agent definition not found._\n`;
 }

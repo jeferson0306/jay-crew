@@ -1,6 +1,6 @@
 {
   "name": "jay-crew",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Multi-agent AI team for project analysis — scans any codebase and generates context for AI assistants. No API key required.",
   "author": "Jeferson Siqueira <jeferson0306@gmail.com>",
   "license": "MIT",
@@ -31,7 +31,6 @@
   "files": [
     "bin",
     "dist",
-    "agents",
     "README.md",
     "LICENSE"
   ],
