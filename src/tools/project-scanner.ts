@@ -417,23 +417,39 @@ function detectFrameworks(configFiles: Record<string, string>): string[] {
   return [...new Set(frameworks)];
 }
 
-// Directories that are not real services (test fixtures, examples, internal modules)
+// Directories that are not real services (test fixtures, examples, internal modules, backups)
 const NON_SERVICE_DIRS = new Set([
-  "test", "tests", "__tests__", "spec", "specs", "e2e",
+  // Test directories
+  "test", "tests", "__tests__", "spec", "specs", "e2e", "cypress", "playwright",
+  // Examples and demos
   "example", "examples", "sample", "samples", "demo", "demos",
-  "fixture", "fixtures", "mock", "mocks", "stub", "stubs",
+  // Test fixtures
+  "fixture", "fixtures", "mock", "mocks", "stub", "stubs", "testdata",
+  // Documentation
   "doc", "docs", "documentation",
+  // Scripts and tools
   "script", "scripts", "bin", "tools", "util", "utils",
-  "config", "configs", "configuration",
-  "lib", "libs", "vendor", "third-party", "third_party",
-  "generated", "gen", "build", "dist", "out", "output",
-  "resources", "assets", "static", "public",
-  "src", "main", "java", "kotlin", "scala", // Java package structure folders
-  "com", "org", "net", "io", "br", "us", "uk", "de", "fr", // Common package prefixes
+  // Configuration
+  "config", "configs", "configuration", "settings",
+  // Vendor/third-party
+  "lib", "libs", "vendor", "third-party", "third_party", "external",
+  // Build output
+  "generated", "gen", "build", "dist", "out", "output", "target", ".next", ".nuxt",
+  // Assets
+  "resources", "assets", "static", "public", "images", "fonts", "icons",
+  // Java/JVM package structure (not services)
+  "src", "main", "java", "kotlin", "scala", "groovy",
+  "com", "org", "net", "io", "br", "us", "uk", "de", "fr", "pt",
+  // Backups and archives
+  "backup", "backups", "bak", "old", "archive", "archives", "deprecated", "legacy",
+  "temp", "tmp", "cache", ".cache",
+  // IDE and editor
+  ".idea", ".vscode", ".vs", ".settings",
+  // Version control
+  ".git", ".svn", ".hg",
 ]);
 
-const MAX_SERVICES_DISPLAYED = 25; // Max services to display (all are still analyzed)
-const MAX_SERVICE_DEPTH = 3; // Look up to 3 levels deep for services
+const MAX_SERVICE_DEPTH = 2; // Only look at direct children or one level nested (e.g., packages/api/)
 
 // Patterns that suggest a directory is a library, not a deployable service
 const LIBRARY_NAME_PATTERNS = [
@@ -543,11 +559,8 @@ function detectServices(
     allServices.push({ name: serviceName, path: dir, type, language });
   }
 
-  // Return all services but track total count
-  const totalCount = allServices.length;
-  const displayedServices = allServices.slice(0, MAX_SERVICES_DISPLAYED);
-  
-  return { services: displayedServices, totalCount };
+  // Return all detected services (no artificial limits)
+  return { services: allServices, totalCount: allServices.length };
 }
 
 function detectStack(
@@ -852,14 +865,9 @@ export function buildProjectContext(snapshot: ProjectSnapshot): string {
     `- Has tests: ${stack.hasTests ? "Yes" : "No"}`,
   ].join("\n");
 
-  let servicesSection = "";
-  if (stack.services.length > 0) {
-    const servicesList = stack.services.map((s) => `- **${s.name}** (${s.type}) — ${s.language} — \`${s.path}\``).join("\n");
-    const truncatedNote = stack.totalServiceCount > stack.services.length 
-      ? `\n\n*Showing ${stack.services.length} of ${stack.totalServiceCount} services*` 
-      : "";
-    servicesSection = `### Detected Services\n${servicesList}${truncatedNote}`;
-  }
+  const servicesSection = stack.services.length > 0
+    ? `### Detected Services\n${stack.services.map((s) => `- **${s.name}** (${s.type}) — ${s.language} — \`${s.path}\``).join("\n")}`
+    : "";
 
   const configSection = Object.entries(snapshot.configFiles)
     .map(([filePath, content]) => {
