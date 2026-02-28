@@ -1,9 +1,11 @@
 # Ambiente
 .env
 
-# Compilado
+# Compiled output
 dist/
 build/
+*.js.map
+*.d.ts
 
 # Dependências
 node_modules/
