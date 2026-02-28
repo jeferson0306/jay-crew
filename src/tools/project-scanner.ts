@@ -57,15 +57,42 @@ const MAX_DEPTH           = 15;  // Maven projects can go 10+ levels deep
 // ─── Language detection mapping ──────────────────────────────────────────────
 
 const LANGUAGE_MAP: Record<string, string> = {
+  // JVM languages
   ".java": "Java",
   ".kt": "Kotlin",
+  ".kts": "Kotlin",
   ".scala": "Scala",
+  ".groovy": "Groovy",
+  ".clj": "Clojure",
+  ".cljs": "ClojureScript",
+  ".cljc": "Clojure",
+  // Systems languages
   ".go": "Go",
   ".rs": "Rust",
+  ".cpp": "C++",
+  ".cc": "C++",
+  ".cxx": "C++",
+  ".c": "C",
+  ".h": "C/C++",
+  ".hpp": "C++",
+  ".hxx": "C++",
+  ".zig": "Zig",
+  ".nim": "Nim",
+  ".d": "D",
+  // Scripting languages
   ".py": "Python",
   ".rb": "Ruby",
   ".php": "PHP",
+  ".pl": "Perl",
+  ".pm": "Perl",
+  ".lua": "Lua",
+  ".tcl": "Tcl",
+  // .NET languages
   ".cs": "C#",
+  ".fs": "F#",
+  ".fsx": "F#",
+  ".vb": "Visual Basic",
+  // JavaScript/TypeScript
   ".ts": "TypeScript",
   ".tsx": "TypeScript (React)",
   ".js": "JavaScript",
@@ -73,23 +100,116 @@ const LANGUAGE_MAP: Record<string, string> = {
   ".mts": "TypeScript",
   ".mjs": "JavaScript",
   ".cjs": "JavaScript",
+  // Frontend frameworks
   ".vue": "Vue",
   ".svelte": "Svelte",
   ".astro": "Astro",
+  // Mobile
   ".swift": "Swift",
+  ".m": "Objective-C",
+  ".mm": "Objective-C++",
   ".dart": "Dart",
-  ".cpp": "C++",
-  ".c": "C",
-  ".h": "C/C++",
-  ".hpp": "C++",
+  // Functional languages
+  ".ex": "Elixir",
+  ".exs": "Elixir",
+  ".erl": "Erlang",
+  ".hrl": "Erlang",
+  ".hs": "Haskell",
+  ".lhs": "Haskell",
+  ".ml": "OCaml",
+  ".mli": "OCaml",
+  ".elm": "Elm",
+  ".purs": "PureScript",
+  ".rkt": "Racket",
+  ".scm": "Scheme",
+  ".lisp": "Lisp",
+  ".cl": "Common Lisp",
+  // Data/Scientific
+  ".r": "R",
+  ".R": "R",
+  ".jl": "Julia",
+  ".mat": "MATLAB",
+  // Enterprise/Legacy
+  ".cob": "COBOL",
+  ".cbl": "COBOL",
+  ".f": "Fortran",
+  ".f90": "Fortran",
+  ".f95": "Fortran",
+  ".for": "Fortran",
+  ".ada": "Ada",
+  ".adb": "Ada",
+  ".ads": "Ada",
+  ".abap": "ABAP",
+  ".p": "Progress 4GL",
+  ".w": "Progress 4GL",
+  // Shell/Scripting
+  ".sh": "Shell",
+  ".bash": "Bash",
+  ".zsh": "Zsh",
+  ".fish": "Fish",
+  ".ps1": "PowerShell",
+  ".psm1": "PowerShell",
+  ".bat": "Batch",
+  ".cmd": "Batch",
+  // Config as code
+  ".tf": "Terraform",
+  ".hcl": "HCL",
+  ".nix": "Nix",
+  // Query languages
+  ".sql": "SQL",
+  ".graphql": "GraphQL",
+  ".gql": "GraphQL",
+  // Templating
+  ".erb": "ERB",
+  ".ejs": "EJS",
+  ".hbs": "Handlebars",
+  ".mustache": "Mustache",
+  ".jinja": "Jinja",
+  ".jinja2": "Jinja",
+  ".twig": "Twig",
+  ".liquid": "Liquid",
+  // WebAssembly
+  ".wat": "WebAssembly",
+  ".wasm": "WebAssembly",
 };
 
 // ─── Service type detection ──────────────────────────────────────────────────
 
 const SERVICE_MANIFEST_FILES = new Set([
-  "package.json", "pom.xml", "build.gradle", "build.gradle.kts",
-  "go.mod", "Cargo.toml", "requirements.txt", "pyproject.toml",
-  "pubspec.yaml", "composer.json", "Gemfile",
+  // JavaScript/Node.js
+  "package.json",
+  // Java/JVM
+  "pom.xml", "build.gradle", "build.gradle.kts", "build.sbt",
+  // Go
+  "go.mod",
+  // Rust
+  "Cargo.toml",
+  // Python
+  "requirements.txt", "pyproject.toml", "setup.py", "Pipfile",
+  // Dart/Flutter
+  "pubspec.yaml",
+  // PHP
+  "composer.json",
+  // Ruby
+  "Gemfile",
+  // .NET
+  "*.csproj", "*.fsproj", "*.vbproj",
+  // Elixir
+  "mix.exs",
+  // Haskell
+  "stack.yaml", "cabal.project", "package.yaml",
+  // Clojure
+  "project.clj", "deps.edn",
+  // Erlang
+  "rebar.config",
+  // Nim
+  "*.nimble",
+  // Swift
+  "Package.swift",
+  // R
+  "DESCRIPTION",
+  // Julia
+  "Project.toml",
 ]);
 
 // ─── Priority classifier ──────────────────────────────────────────────────────
@@ -311,108 +431,420 @@ function detectLanguages(
     .slice(0, 10);
 }
 
-function detectFrameworks(configFiles: Record<string, string>): string[] {
+function detectFrameworks(configFiles: Record<string, string>, allFiles: Array<{ path: string; ext: string }>): string[] {
   const frameworks: string[] = [];
   const configNames = Object.keys(configFiles).map((p) => path.basename(p).toLowerCase());
+  const allConfigPaths = Object.keys(configFiles).map((p) => p.toLowerCase());
   const allContent = Object.values(configFiles).join("\n").toLowerCase();
+  const allFilePaths = allFiles.map((f) => f.path.toLowerCase());
 
-  // Java frameworks
+  // ═══════════════════════════════════════════════════════════════════════════
+  // JAVA / JVM ECOSYSTEM
+  // ═══════════════════════════════════════════════════════════════════════════
   if (configNames.some((n) => n === "pom.xml")) {
-    const pomContent = Object.values(configFiles).find((c) => c.includes("<artifactId>"));
-    if (pomContent?.includes("spring-boot")) frameworks.push("Spring Boot");
-    else if (pomContent?.includes("quarkus")) frameworks.push("Quarkus");
-    else if (pomContent?.includes("micronaut")) frameworks.push("Micronaut");
-    else frameworks.push("Java/Maven");
+    const pomContent = Object.values(configFiles).find((c) => c.includes("<artifactId>")) || "";
+    if (pomContent.includes("spring-boot")) frameworks.push("Spring Boot");
+    if (pomContent.includes("quarkus")) frameworks.push("Quarkus");
+    if (pomContent.includes("micronaut")) frameworks.push("Micronaut");
+    if (pomContent.includes("dropwizard")) frameworks.push("Dropwizard");
+    if (pomContent.includes("vertx") || pomContent.includes("vert.x")) frameworks.push("Vert.x");
+    if (pomContent.includes("helidon")) frameworks.push("Helidon");
+    if (pomContent.includes("jakarta")) frameworks.push("Jakarta EE");
+    if (pomContent.includes("javax.servlet")) frameworks.push("Java Servlet");
+    if (!frameworks.some((f) => f.includes("Spring") || f.includes("Quarkus") || f.includes("Micronaut"))) {
+      frameworks.push("Java/Maven");
+    }
   }
   if (configNames.some((n) => n === "build.gradle" || n === "build.gradle.kts")) {
+    if (allContent.includes("org.springframework.boot")) frameworks.push("Spring Boot");
+    if (allContent.includes("io.quarkus")) frameworks.push("Quarkus");
     frameworks.push("Gradle");
   }
+  if (configNames.some((n) => n === "build.sbt")) frameworks.push("Scala/sbt");
+  if (allContent.includes("play.api") || allContent.includes("playframework")) frameworks.push("Play Framework");
+  if (allContent.includes("akka")) frameworks.push("Akka");
 
-  // Go
-  if (configNames.some((n) => n === "go.mod")) frameworks.push("Go");
+  // ═══════════════════════════════════════════════════════════════════════════
+  // GO ECOSYSTEM
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (configNames.some((n) => n === "go.mod")) {
+    if (allContent.includes("github.com/gin-gonic/gin")) frameworks.push("Gin");
+    else if (allContent.includes("github.com/labstack/echo")) frameworks.push("Echo");
+    else if (allContent.includes("github.com/gofiber/fiber")) frameworks.push("Fiber");
+    else if (allContent.includes("github.com/gorilla/mux")) frameworks.push("Gorilla Mux");
+    else if (allContent.includes("github.com/go-chi/chi")) frameworks.push("Chi");
+    else if (allContent.includes("github.com/beego/beego")) frameworks.push("Beego");
+    else frameworks.push("Go");
+  }
 
-  // Rust
-  if (configNames.some((n) => n === "cargo.toml")) frameworks.push("Rust");
+  // ═══════════════════════════════════════════════════════════════════════════
+  // RUST ECOSYSTEM
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (configNames.some((n) => n === "cargo.toml")) {
+    if (allContent.includes("actix-web")) frameworks.push("Actix Web");
+    else if (allContent.includes("axum")) frameworks.push("Axum");
+    else if (allContent.includes("rocket")) frameworks.push("Rocket");
+    else if (allContent.includes("warp")) frameworks.push("Warp");
+    else if (allContent.includes("tide")) frameworks.push("Tide");
+    else if (allContent.includes("tauri")) frameworks.push("Tauri");
+    else if (allContent.includes("yew")) frameworks.push("Yew");
+    else if (allContent.includes("leptos")) frameworks.push("Leptos");
+    else frameworks.push("Rust");
+  }
 
-  // Python frameworks
-  if (configNames.some((n) => n === "requirements.txt" || n === "pyproject.toml" || n === "setup.py")) {
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PYTHON ECOSYSTEM
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (configNames.some((n) => ["requirements.txt", "pyproject.toml", "setup.py", "pipfile"].includes(n))) {
     if (allContent.includes("django")) frameworks.push("Django");
-    else if (allContent.includes("fastapi")) frameworks.push("FastAPI");
-    else if (allContent.includes("flask")) frameworks.push("Flask");
-    else frameworks.push("Python");
+    if (allContent.includes("fastapi")) frameworks.push("FastAPI");
+    if (allContent.includes("flask")) frameworks.push("Flask");
+    if (allContent.includes("tornado")) frameworks.push("Tornado");
+    if (allContent.includes("pyramid")) frameworks.push("Pyramid");
+    if (allContent.includes("falcon")) frameworks.push("Falcon");
+    if (allContent.includes("sanic")) frameworks.push("Sanic");
+    if (allContent.includes("starlette")) frameworks.push("Starlette");
+    if (allContent.includes("bottle")) frameworks.push("Bottle");
+    if (allContent.includes("aiohttp")) frameworks.push("aiohttp");
+    if (allContent.includes("celery")) frameworks.push("Celery");
+    if (allContent.includes("airflow")) frameworks.push("Apache Airflow");
+    if (allContent.includes("luigi")) frameworks.push("Luigi");
+    if (allContent.includes("prefect")) frameworks.push("Prefect");
+    if (allContent.includes("dagster")) frameworks.push("Dagster");
+    if (allContent.includes("tensorflow") || allContent.includes("keras")) frameworks.push("TensorFlow");
+    if (allContent.includes("pytorch") || allContent.includes("torch")) frameworks.push("PyTorch");
+    if (allContent.includes("scikit-learn") || allContent.includes("sklearn")) frameworks.push("scikit-learn");
+    if (allContent.includes("pandas")) frameworks.push("Pandas");
+    if (allContent.includes("numpy")) frameworks.push("NumPy");
+    if (allContent.includes("streamlit")) frameworks.push("Streamlit");
+    if (allContent.includes("gradio")) frameworks.push("Gradio");
+    if (!frameworks.some((f) => ["Django", "FastAPI", "Flask", "Tornado", "Pyramid"].includes(f))) {
+      frameworks.push("Python");
+    }
   }
   if (configNames.some((n) => n === "manage.py")) frameworks.push("Django");
 
-  // Ruby frameworks
+  // ═══════════════════════════════════════════════════════════════════════════
+  // RUBY ECOSYSTEM
+  // ═══════════════════════════════════════════════════════════════════════════
   if (configNames.some((n) => n === "gemfile")) {
     if (allContent.includes("rails")) frameworks.push("Ruby on Rails");
-    else frameworks.push("Ruby");
+    if (allContent.includes("sinatra")) frameworks.push("Sinatra");
+    if (allContent.includes("hanami")) frameworks.push("Hanami");
+    if (allContent.includes("grape")) frameworks.push("Grape");
+    if (allContent.includes("sidekiq")) frameworks.push("Sidekiq");
+    if (allContent.includes("rspec")) frameworks.push("RSpec");
+    if (!frameworks.some((f) => f.includes("Rails") || f.includes("Sinatra"))) {
+      frameworks.push("Ruby");
+    }
   }
 
-  // PHP frameworks
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PHP ECOSYSTEM
+  // ═══════════════════════════════════════════════════════════════════════════
   if (configNames.some((n) => n === "composer.json")) {
     if (allContent.includes("laravel")) frameworks.push("Laravel");
-    else if (allContent.includes("symfony")) frameworks.push("Symfony");
-    else frameworks.push("PHP");
+    if (allContent.includes("symfony")) frameworks.push("Symfony");
+    if (allContent.includes("slim/slim")) frameworks.push("Slim");
+    if (allContent.includes("cakephp")) frameworks.push("CakePHP");
+    if (allContent.includes("codeigniter")) frameworks.push("CodeIgniter");
+    if (allContent.includes("yiisoft/yii2")) frameworks.push("Yii");
+    if (allContent.includes("laminas")) frameworks.push("Laminas");
+    if (allContent.includes("drupal")) frameworks.push("Drupal");
+    if (allContent.includes("wordpress")) frameworks.push("WordPress");
+    if (allContent.includes("magento")) frameworks.push("Magento");
+    if (!frameworks.some((f) => ["Laravel", "Symfony", "CakePHP", "Drupal", "WordPress"].includes(f))) {
+      frameworks.push("PHP");
+    }
   }
 
-  // .NET
-  if (configNames.some((n) => n.endsWith(".csproj") || n.endsWith(".sln"))) {
-    if (allContent.includes("aspnetcore") || allContent.includes("microsoft.aspnetcore")) {
-      frameworks.push("ASP.NET Core");
-    } else {
+  // ═══════════════════════════════════════════════════════════════════════════
+  // .NET ECOSYSTEM
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (configNames.some((n) => n.endsWith(".csproj") || n.endsWith(".fsproj") || n.endsWith(".sln"))) {
+    if (allContent.includes("microsoft.aspnetcore")) frameworks.push("ASP.NET Core");
+    if (allContent.includes("blazor")) frameworks.push("Blazor");
+    if (allContent.includes("maui")) frameworks.push(".NET MAUI");
+    if (allContent.includes("xamarin")) frameworks.push("Xamarin");
+    if (allContent.includes("avalonia")) frameworks.push("Avalonia");
+    if (allContent.includes("wpf")) frameworks.push("WPF");
+    if (allContent.includes("winforms")) frameworks.push("WinForms");
+    if (allContent.includes("entityframework") || allContent.includes("entity framework")) frameworks.push("Entity Framework");
+    if (allContent.includes("nservicebus")) frameworks.push("NServiceBus");
+    if (allContent.includes("masstransit")) frameworks.push("MassTransit");
+    if (!frameworks.some((f) => f.includes("ASP.NET") || f.includes("Blazor"))) {
       frameworks.push(".NET");
     }
   }
 
-  // Frontend frameworks
-  if (configNames.some((n) => n === "next.config.js" || n === "next.config.ts" || n === "next.config.mjs")) {
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ELIXIR / ERLANG ECOSYSTEM
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (configNames.some((n) => n === "mix.exs")) {
+    if (allContent.includes("phoenix")) frameworks.push("Phoenix");
+    if (allContent.includes("nerves")) frameworks.push("Nerves");
+    if (allContent.includes("absinthe")) frameworks.push("Absinthe (GraphQL)");
+    if (allContent.includes("liveview")) frameworks.push("Phoenix LiveView");
+    if (!frameworks.includes("Phoenix")) frameworks.push("Elixir");
+  }
+  if (configNames.some((n) => n === "rebar.config")) {
+    if (allContent.includes("cowboy")) frameworks.push("Cowboy");
+    frameworks.push("Erlang");
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HASKELL ECOSYSTEM
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (configNames.some((n) => ["stack.yaml", "cabal.project", "package.yaml"].includes(n))) {
+    if (allContent.includes("servant")) frameworks.push("Servant");
+    if (allContent.includes("yesod")) frameworks.push("Yesod");
+    if (allContent.includes("scotty")) frameworks.push("Scotty");
+    if (allContent.includes("ihp")) frameworks.push("IHP");
+    frameworks.push("Haskell");
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CLOJURE ECOSYSTEM
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (configNames.some((n) => ["project.clj", "deps.edn"].includes(n))) {
+    if (allContent.includes("ring")) frameworks.push("Ring");
+    if (allContent.includes("compojure")) frameworks.push("Compojure");
+    if (allContent.includes("luminus")) frameworks.push("Luminus");
+    if (allContent.includes("pedestal")) frameworks.push("Pedestal");
+    frameworks.push("Clojure");
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // NODE.JS / JAVASCRIPT FRAMEWORKS
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (configNames.some((n) => n === "package.json")) {
+    if (allContent.includes("\"express\"")) frameworks.push("Express.js");
+    if (allContent.includes("\"@nestjs/core\"") || allContent.includes("nestjs")) frameworks.push("NestJS");
+    if (allContent.includes("\"fastify\"")) frameworks.push("Fastify");
+    if (allContent.includes("\"hapi\"") || allContent.includes("\"@hapi/hapi\"")) frameworks.push("Hapi");
+    if (allContent.includes("\"koa\"")) frameworks.push("Koa");
+    if (allContent.includes("\"@adonisjs\"") || allContent.includes("adonisjs")) frameworks.push("AdonisJS");
+    if (allContent.includes("\"strapi\"")) frameworks.push("Strapi");
+    if (allContent.includes("\"keystone\"")) frameworks.push("KeystoneJS");
+    if (allContent.includes("\"prisma\"")) frameworks.push("Prisma");
+    if (allContent.includes("\"typeorm\"")) frameworks.push("TypeORM");
+    if (allContent.includes("\"sequelize\"")) frameworks.push("Sequelize");
+    if (allContent.includes("\"mongoose\"")) frameworks.push("Mongoose");
+    if (allContent.includes("\"@trpc\"") || allContent.includes("trpc")) frameworks.push("tRPC");
+    if (allContent.includes("\"graphql\"") || allContent.includes("\"apollo\"")) frameworks.push("GraphQL");
+    if (allContent.includes("\"socket.io\"")) frameworks.push("Socket.IO");
+    if (allContent.includes("\"electron\"")) frameworks.push("Electron");
+    if (allContent.includes("\"puppeteer\"")) frameworks.push("Puppeteer");
+    if (allContent.includes("\"playwright\"")) frameworks.push("Playwright");
+    if (allContent.includes("\"jest\"")) frameworks.push("Jest");
+    if (allContent.includes("\"vitest\"")) frameworks.push("Vitest");
+    if (allContent.includes("\"cypress\"")) frameworks.push("Cypress");
+    if (allContent.includes("\"tailwindcss\"")) frameworks.push("Tailwind CSS");
+    if (allContent.includes("\"styled-components\"")) frameworks.push("Styled Components");
+    if (allContent.includes("\"@emotion\"")) frameworks.push("Emotion");
+    if (allContent.includes("\"redux\"")) frameworks.push("Redux");
+    if (allContent.includes("\"zustand\"")) frameworks.push("Zustand");
+    if (allContent.includes("\"mobx\"")) frameworks.push("MobX");
+    if (allContent.includes("\"recoil\"")) frameworks.push("Recoil");
+    if (allContent.includes("\"jotai\"")) frameworks.push("Jotai");
+    if (allContent.includes("\"tanstack\"") || allContent.includes("react-query")) frameworks.push("TanStack Query");
+    if (allContent.includes("\"storybook\"")) frameworks.push("Storybook");
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // FRONTEND FRAMEWORKS
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (configNames.some((n) => ["next.config.js", "next.config.ts", "next.config.mjs"].includes(n))) {
     frameworks.push("Next.js");
   }
-  if (configNames.some((n) => n === "nuxt.config.ts" || n === "nuxt.config.js")) frameworks.push("Nuxt");
+  if (configNames.some((n) => ["nuxt.config.ts", "nuxt.config.js"].includes(n))) frameworks.push("Nuxt");
   if (configNames.some((n) => n === "svelte.config.js")) frameworks.push("SvelteKit");
   if (configNames.some((n) => n === "angular.json")) frameworks.push("Angular");
-  if (configNames.some((n) => n === "astro.config.mjs" || n === "astro.config.ts")) frameworks.push("Astro");
-  if (configNames.some((n) => n === "vite.config.ts" || n === "vite.config.js")) {
-    frameworks.push("Vite");
+  if (configNames.some((n) => ["astro.config.mjs", "astro.config.ts"].includes(n))) frameworks.push("Astro");
+  if (configNames.some((n) => ["vite.config.ts", "vite.config.js"].includes(n))) frameworks.push("Vite");
+  if (configNames.some((n) => ["remix.config.js", "remix.config.ts"].includes(n))) frameworks.push("Remix");
+  if (configNames.some((n) => n === "gatsby-config.js" || n === "gatsby-config.ts")) frameworks.push("Gatsby");
+  if (configNames.some((n) => n === "solid-start.config.ts")) frameworks.push("SolidStart");
+  if (configNames.some((n) => n === "qwik.config.ts")) frameworks.push("Qwik");
+  if (configNames.some((n) => n === "ember-cli-build.js")) frameworks.push("Ember.js");
+  if (allContent.includes("\"vue\"") || allFilePaths.some((p) => p.endsWith(".vue"))) frameworks.push("Vue.js");
+  if (allContent.includes("\"react\"") || allFilePaths.some((p) => p.endsWith(".tsx") || p.endsWith(".jsx"))) {
+    if (!frameworks.includes("Next.js") && !frameworks.includes("Remix") && !frameworks.includes("Gatsby")) {
+      frameworks.push("React");
+    }
   }
-  if (configNames.some((n) => n === "remix.config.js" || n === "remix.config.ts")) {
-    frameworks.push("Remix");
+  if (allContent.includes("\"svelte\"") || allFilePaths.some((p) => p.endsWith(".svelte"))) {
+    if (!frameworks.includes("SvelteKit")) frameworks.push("Svelte");
   }
+  if (allContent.includes("\"solid-js\"")) frameworks.push("Solid.js");
+  if (allContent.includes("\"preact\"")) frameworks.push("Preact");
+  if (allContent.includes("\"alpine\"") || allContent.includes("alpinejs")) frameworks.push("Alpine.js");
+  if (allContent.includes("\"htmx\"")) frameworks.push("htmx");
+  if (allContent.includes("\"lit\"") || allContent.includes("lit-element")) frameworks.push("Lit");
 
-  // Mobile
+  // ═══════════════════════════════════════════════════════════════════════════
+  // MOBILE DEVELOPMENT
+  // ═══════════════════════════════════════════════════════════════════════════
   if (configNames.some((n) => n === "pubspec.yaml")) frameworks.push("Flutter");
   if (configNames.some((n) => n === "podfile")) frameworks.push("iOS (CocoaPods)");
-  if (configNames.some((n) => n === "build.gradle") && allContent.includes("com.android")) {
-    frameworks.push("Android");
-  }
+  if (configNames.some((n) => n === "package.swift")) frameworks.push("Swift Package Manager");
+  if (configNames.some((n) => n === "build.gradle") && allContent.includes("com.android")) frameworks.push("Android");
+  if (allContent.includes("react-native")) frameworks.push("React Native");
+  if (allContent.includes("expo")) frameworks.push("Expo");
+  if (allContent.includes("capacitor")) frameworks.push("Capacitor");
+  if (allContent.includes("ionic")) frameworks.push("Ionic");
+  if (allContent.includes("nativescript")) frameworks.push("NativeScript");
 
-  // Monorepo tools
-  if (configNames.some((n) => n === "nx.json")) frameworks.push("Nx Monorepo");
-  if (configNames.some((n) => n === "lerna.json")) frameworks.push("Lerna Monorepo");
+  // ═══════════════════════════════════════════════════════════════════════════
+  // MONOREPO TOOLS
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (configNames.some((n) => n === "nx.json")) frameworks.push("Nx");
+  if (configNames.some((n) => n === "lerna.json")) frameworks.push("Lerna");
   if (configNames.some((n) => n === "turbo.json")) frameworks.push("Turborepo");
-  if (configNames.some((n) => n === "pnpm-workspace.yaml")) frameworks.push("pnpm Workspace");
+  if (configNames.some((n) => n === "pnpm-workspace.yaml")) frameworks.push("pnpm Workspaces");
+  if (configNames.some((n) => n === "rush.json")) frameworks.push("Rush");
+  if (allContent.includes("\"workspaces\"")) frameworks.push("Yarn/npm Workspaces");
 
-  // Infrastructure
-  if (configNames.some((n) => n === "dockerfile")) frameworks.push("Docker");
-  if (configNames.some((n) => n.includes("docker-compose") || n.includes("compose.y"))) {
-    frameworks.push("Docker Compose");
-  }
-  if (configNames.some((n) => n.includes("kubernetes") || n.includes("k8s"))) {
+  // ═══════════════════════════════════════════════════════════════════════════
+  // MESSAGE QUEUES / EVENT STREAMING
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (allContent.includes("kafka") || allContent.includes("kafkajs")) frameworks.push("Apache Kafka");
+  if (allContent.includes("rabbitmq") || allContent.includes("amqplib")) frameworks.push("RabbitMQ");
+  if (allContent.includes("bullmq") || allContent.includes("\"bull\"")) frameworks.push("BullMQ");
+  if (allContent.includes("aws-sdk") && allContent.includes("sqs")) frameworks.push("AWS SQS");
+  if (allContent.includes("nats")) frameworks.push("NATS");
+  if (allContent.includes("pulsar")) frameworks.push("Apache Pulsar");
+  if (allContent.includes("zeromq") || allContent.includes("zmq")) frameworks.push("ZeroMQ");
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // DATABASES / ORM / DATA
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (configNames.some((n) => n === "schema.prisma")) frameworks.push("Prisma");
+  if (allContent.includes("mongodb") || allContent.includes("mongoose")) frameworks.push("MongoDB");
+  if (allContent.includes("postgresql") || allContent.includes("pg")) frameworks.push("PostgreSQL");
+  if (allContent.includes("mysql2") || allContent.includes("mysql")) frameworks.push("MySQL");
+  if (allContent.includes("redis") || allContent.includes("ioredis")) frameworks.push("Redis");
+  if (allContent.includes("elasticsearch") || allContent.includes("@elastic")) frameworks.push("Elasticsearch");
+  if (allContent.includes("neo4j")) frameworks.push("Neo4j");
+  if (allContent.includes("cassandra")) frameworks.push("Cassandra");
+  if (allContent.includes("dynamodb")) frameworks.push("DynamoDB");
+  if (allContent.includes("firebase") || allContent.includes("firestore")) frameworks.push("Firebase");
+  if (allContent.includes("supabase")) frameworks.push("Supabase");
+  if (allContent.includes("planetscale")) frameworks.push("PlanetScale");
+  if (allContent.includes("cockroachdb")) frameworks.push("CockroachDB");
+  if (allContent.includes("timescaledb")) frameworks.push("TimescaleDB");
+  if (allContent.includes("influxdb")) frameworks.push("InfluxDB");
+  if (allContent.includes("clickhouse")) frameworks.push("ClickHouse");
+  if (allContent.includes("drizzle")) frameworks.push("Drizzle ORM");
+  if (allContent.includes("knex")) frameworks.push("Knex.js");
+  if (allContent.includes("sqlalchemy")) frameworks.push("SQLAlchemy");
+  if (allContent.includes("hibernate")) frameworks.push("Hibernate");
+  if (allContent.includes("activerecord")) frameworks.push("ActiveRecord");
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // INFRASTRUCTURE AS CODE
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (configNames.some((n) => n === "dockerfile" || n.startsWith("dockerfile."))) frameworks.push("Docker");
+  if (configNames.some((n) => n.includes("docker-compose") || n.includes("compose.y"))) frameworks.push("Docker Compose");
+  if (allConfigPaths.some((p) => p.includes("kubernetes") || p.includes("k8s") || p.endsWith(".yaml") && allContent.includes("apiversion:"))) {
     frameworks.push("Kubernetes");
   }
-  if (configNames.some((n) => n === "terraform.tf" || n.endsWith(".tf"))) {
-    frameworks.push("Terraform");
-  }
-  if (configNames.some((n) => n === "serverless.yml" || n === "serverless.yaml")) {
-    frameworks.push("Serverless Framework");
-  }
+  if (configNames.some((n) => n.endsWith(".tf") || n === "main.tf")) frameworks.push("Terraform");
+  if (configNames.some((n) => n === "pulumi.yaml" || n === "pulumi.yml")) frameworks.push("Pulumi");
+  if (configNames.some((n) => n === "ansible.cfg") || allConfigPaths.some((p) => p.includes("playbook"))) frameworks.push("Ansible");
+  if (configNames.some((n) => n === "vagrantfile")) frameworks.push("Vagrant");
+  if (allContent.includes("cloudformation") || configNames.some((n) => n.includes("cloudformation"))) frameworks.push("CloudFormation");
+  if (configNames.some((n) => n === "cdk.json")) frameworks.push("AWS CDK");
+  if (configNames.some((n) => n === "sam.yaml" || n === "template.yaml") && allContent.includes("aws::serverless")) frameworks.push("AWS SAM");
+  if (configNames.some((n) => n === "serverless.yml" || n === "serverless.yaml")) frameworks.push("Serverless Framework");
+  if (configNames.some((n) => n === "skaffold.yaml")) frameworks.push("Skaffold");
+  if (configNames.some((n) => n === "tilt.yaml" || n === "tiltfile")) frameworks.push("Tilt");
+  if (configNames.some((n) => n === "helmfile.yaml") || allConfigPaths.some((p) => p.includes("/helm/"))) frameworks.push("Helm");
+  if (configNames.some((n) => n === "kustomization.yaml")) frameworks.push("Kustomize");
 
-  // CI/CD
-  if (configNames.some((n) => n === "jenkinsfile")) frameworks.push("Jenkins");
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CI/CD PIPELINES
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (allConfigPaths.some((p) => p.includes(".github/workflows"))) frameworks.push("GitHub Actions");
   if (configNames.some((n) => n === ".gitlab-ci.yml")) frameworks.push("GitLab CI");
-  if (configNames.some((n) => n === "azure-pipelines.yml")) frameworks.push("Azure Pipelines");
+  if (configNames.some((n) => n === "jenkinsfile")) frameworks.push("Jenkins");
+  if (configNames.some((n) => n === "azure-pipelines.yml" || n === "azure-pipelines.yaml")) frameworks.push("Azure Pipelines");
   if (configNames.some((n) => n === "bitbucket-pipelines.yml")) frameworks.push("Bitbucket Pipelines");
+  if (configNames.some((n) => n === ".circleci" || n === "config.yml") && allConfigPaths.some((p) => p.includes(".circleci"))) {
+    frameworks.push("CircleCI");
+  }
+  if (configNames.some((n) => n === ".travis.yml")) frameworks.push("Travis CI");
+  if (configNames.some((n) => n === ".drone.yml")) frameworks.push("Drone CI");
+  if (configNames.some((n) => n === "buildkite.yml" || n === ".buildkite")) frameworks.push("Buildkite");
+  if (configNames.some((n) => n === "cloudbuild.yaml" || n === "cloudbuild.yml")) frameworks.push("Google Cloud Build");
+  if (configNames.some((n) => n === "appveyor.yml")) frameworks.push("AppVeyor");
+  if (configNames.some((n) => n === "concourse.yml") || allConfigPaths.some((p) => p.includes("concourse"))) frameworks.push("Concourse CI");
+  if (configNames.some((n) => n === "codefresh.yml")) frameworks.push("Codefresh");
+  if (configNames.some((n) => n === "semaphore.yml") || allConfigPaths.some((p) => p.includes(".semaphore"))) frameworks.push("Semaphore CI");
+  if (allConfigPaths.some((p) => p.includes("tekton"))) frameworks.push("Tekton");
+  if (configNames.some((n) => n === "argocd" || n.includes("argocd"))) frameworks.push("ArgoCD");
+  if (configNames.some((n) => n.includes("fluxcd") || n === "flux-system")) frameworks.push("FluxCD");
+  if (configNames.some((n) => n === "spinnaker.yml")) frameworks.push("Spinnaker");
+  if (configNames.some((n) => n === "wercker.yml")) frameworks.push("Wercker");
+  if (configNames.some((n) => n === "buddy.yml")) frameworks.push("Buddy");
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CLOUD PLATFORMS / HOSTING
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (configNames.some((n) => n === "vercel.json")) frameworks.push("Vercel");
+  if (configNames.some((n) => n === "netlify.toml")) frameworks.push("Netlify");
+  if (configNames.some((n) => n === "fly.toml")) frameworks.push("Fly.io");
+  if (configNames.some((n) => n === "render.yaml")) frameworks.push("Render");
+  if (configNames.some((n) => n === "railway.json" || n === "railway.toml")) frameworks.push("Railway");
+  if (configNames.some((n) => n === "app.yaml") && allContent.includes("runtime:")) frameworks.push("Google App Engine");
+  if (configNames.some((n) => n === "heroku.yml" || n === "procfile")) frameworks.push("Heroku");
+  if (configNames.some((n) => n === "wrangler.toml")) frameworks.push("Cloudflare Workers");
+  if (configNames.some((n) => n === "deno.json" || n === "deno.jsonc")) frameworks.push("Deno Deploy");
+  if (allContent.includes("aws-lambda") || allContent.includes("@aws-cdk/aws-lambda")) frameworks.push("AWS Lambda");
+  if (allContent.includes("azure-functions") || configNames.some((n) => n === "host.json")) frameworks.push("Azure Functions");
+  if (allContent.includes("@google-cloud/functions")) frameworks.push("Google Cloud Functions");
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // OBSERVABILITY / MONITORING
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (configNames.some((n) => n === "prometheus.yml" || n === "prometheus.yaml")) frameworks.push("Prometheus");
+  if (allContent.includes("grafana")) frameworks.push("Grafana");
+  if (allContent.includes("datadog") || allContent.includes("dd-trace")) frameworks.push("Datadog");
+  if (allContent.includes("newrelic") || allContent.includes("new relic")) frameworks.push("New Relic");
+  if (allContent.includes("sentry")) frameworks.push("Sentry");
+  if (allContent.includes("opentelemetry") || allContent.includes("@opentelemetry")) frameworks.push("OpenTelemetry");
+  if (allContent.includes("jaeger")) frameworks.push("Jaeger");
+  if (allContent.includes("zipkin")) frameworks.push("Zipkin");
+  if (allContent.includes("elastic-apm") || allContent.includes("elasticapm")) frameworks.push("Elastic APM");
+  if (allContent.includes("logstash")) frameworks.push("Logstash");
+  if (allContent.includes("fluentd") || allContent.includes("fluent-bit")) frameworks.push("Fluentd");
+  if (allContent.includes("loki")) frameworks.push("Grafana Loki");
+  if (allContent.includes("splunk")) frameworks.push("Splunk");
+  if (allContent.includes("pagerduty")) frameworks.push("PagerDuty");
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // API / DOCUMENTATION
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (configNames.some((n) => n === "openapi.yaml" || n === "openapi.json" || n === "swagger.yaml" || n === "swagger.json")) {
+    frameworks.push("OpenAPI/Swagger");
+  }
+  if (allContent.includes("graphql") && !frameworks.includes("GraphQL")) frameworks.push("GraphQL");
+  if (allContent.includes("grpc") || allFilePaths.some((p) => p.endsWith(".proto"))) frameworks.push("gRPC");
+  if (allContent.includes("asyncapi")) frameworks.push("AsyncAPI");
+  if (allContent.includes("postman")) frameworks.push("Postman");
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // AUTHENTICATION / SECURITY
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (allContent.includes("auth0")) frameworks.push("Auth0");
+  if (allContent.includes("keycloak")) frameworks.push("Keycloak");
+  if (allContent.includes("okta")) frameworks.push("Okta");
+  if (allContent.includes("clerk")) frameworks.push("Clerk");
+  if (allContent.includes("next-auth") || allContent.includes("nextauth")) frameworks.push("NextAuth.js");
+  if (allContent.includes("passport")) frameworks.push("Passport.js");
+  if (allContent.includes("oauth2") || allContent.includes("oauth 2")) frameworks.push("OAuth 2.0");
+  if (allContent.includes("jsonwebtoken") || allContent.includes("jwt")) frameworks.push("JWT");
+  if (allContent.includes("vault") && allContent.includes("hashicorp")) frameworks.push("HashiCorp Vault");
 
   return [...new Set(frameworks)];
 }
@@ -454,7 +886,46 @@ const MAX_SERVICE_DEPTH = 2; // Only look at direct children or one level nested
 // Patterns that suggest a directory is a library, not a deployable service
 const LIBRARY_NAME_PATTERNS = [
   "lib", "libs", "library", "common", "shared", "core", "utils", "helpers",
-  "sdk", "client", "types", "models", "dto", "entities", "interfaces"
+  "sdk", "client", "types", "models", "dto", "entities", "interfaces",
+  "contracts", "protocol", "proto", "schema", "schemas", "domain",
+  "internal", "pkg", "packages", "modules"
+];
+
+// Patterns that suggest a backend service
+const BACKEND_NAME_PATTERNS = [
+  "api", "backend", "server", "service", "svc", "microservice",
+  "gateway", "proxy", "worker", "job", "jobs", "scheduler", "cron",
+  "batch", "processor", "handler", "consumer", "producer",
+  "auth", "authentication", "identity", "iam",
+  "notification", "notifications", "email", "messaging", "sms",
+  "payment", "billing", "checkout", "order", "orders",
+  "user", "users", "account", "accounts", "profile", "profiles",
+  "inventory", "catalog", "product", "products",
+  "search", "indexer", "recommendation", "analytics", "reporting",
+  "admin", "administration", "backoffice", "cms",
+  "integration", "sync", "connector", "adapter", "bridge",
+  "orchestrator", "coordinator", "saga"
+];
+
+// Patterns that suggest a frontend service
+const FRONTEND_NAME_PATTERNS = [
+  "web", "webapp", "website", "frontend", "front-end", "client",
+  "ui", "dashboard", "portal", "console", "panel", "admin-ui",
+  "spa", "pwa", "landing", "marketing", "storefront", "shop",
+  "app", "application"
+];
+
+// Patterns that suggest a mobile service
+const MOBILE_NAME_PATTERNS = [
+  "mobile", "ios", "android", "native", "rn", "react-native", "flutter",
+  "cordova", "capacitor", "ionic", "expo"
+];
+
+// Patterns that suggest infrastructure/devops
+const INFRA_NAME_PATTERNS = [
+  "infra", "infrastructure", "terraform", "pulumi", "cdk", "cloudformation",
+  "k8s", "kubernetes", "helm", "docker", "compose", "deploy", "deployment",
+  "ci", "cd", "pipeline", "build", "release"
 ];
 
 function detectServices(
@@ -545,15 +1016,28 @@ function detectServices(
       }
     }
     
-    // Use service name as a hint if type is still unknown
-    if (type === "unknown") {
-      if (nameLower.includes("api") || nameLower.includes("backend") || nameLower.includes("server") || nameLower.includes("service")) {
-        type = "backend";
-      } else if (nameLower.includes("web") || nameLower.includes("frontend") || nameLower.includes("client") || nameLower.includes("ui") || nameLower.includes("app")) {
-        type = "frontend";
-      } else if (nameLower.includes("mobile") || nameLower.includes("ios") || nameLower.includes("android")) {
+    // Use service name patterns as hints for type detection
+    if (type === "unknown" || type === "backend") {
+      // Check if it matches frontend patterns (override backend if detected via package.json without framework)
+      const matchesFrontend = FRONTEND_NAME_PATTERNS.some((p) => nameLower.includes(p));
+      const matchesMobile = MOBILE_NAME_PATTERNS.some((p) => nameLower.includes(p));
+      const matchesBackend = BACKEND_NAME_PATTERNS.some((p) => nameLower.includes(p));
+      const matchesInfra = INFRA_NAME_PATTERNS.some((p) => nameLower.includes(p));
+      
+      if (matchesMobile && type === "unknown") {
         type = "mobile";
+      } else if (matchesFrontend && !matchesBackend && type === "unknown") {
+        type = "frontend";
+      } else if (matchesBackend) {
+        type = "backend";
+      } else if (matchesInfra) {
+        type = "library"; // Infrastructure code is more like a library/tooling
       }
+    }
+    
+    // If still unknown and not a library pattern, default to backend (most common)
+    if (type === "unknown" && !isLikelyLibrary) {
+      type = "backend";
     }
 
     allServices.push({ name: serviceName, path: dir, type, language });
@@ -569,7 +1053,7 @@ function detectStack(
   configFiles: Record<string, string>
 ): DetectedStack {
   const languages = detectLanguages(allFiles);
-  const frameworks = detectFrameworks(configFiles);
+  const frameworks = detectFrameworks(configFiles, allFiles);
   const { services, totalCount: totalServiceCount } = detectServices(projectPath, allFiles, configFiles);
 
   // Detect monorepo
