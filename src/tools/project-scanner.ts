@@ -432,14 +432,21 @@ const NON_SERVICE_DIRS = new Set([
   "com", "org", "net", "io", "br", "us", "uk", "de", "fr", // Common package prefixes
 ]);
 
-const MAX_SERVICES = 15; // Reasonable limit for service count
-const MAX_SERVICE_DEPTH = 2; // Only look 2 levels deep for services
+const MAX_SERVICES_DISPLAYED = 25; // Max services to display (all are still analyzed)
+const MAX_SERVICE_DEPTH = 3; // Look up to 3 levels deep for services
+
+// Patterns that suggest a directory is a library, not a deployable service
+const LIBRARY_NAME_PATTERNS = [
+  "lib", "libs", "library", "common", "shared", "core", "utils", "helpers",
+  "sdk", "client", "types", "models", "dto", "entities", "interfaces"
+];
 
 function detectServices(
   projectPath: string,
-  allFiles: Array<{ path: string; size: number; ext: string }>
-): Array<{ name: string; path: string; type: "backend" | "frontend" | "mobile" | "library" | "unknown"; language: string }> {
-  const services: Array<{ name: string; path: string; type: "backend" | "frontend" | "mobile" | "library" | "unknown"; language: string }> = [];
+  allFiles: Array<{ path: string; size: number; ext: string }>,
+  configFiles: Record<string, string>
+): { services: Array<{ name: string; path: string; type: "backend" | "frontend" | "mobile" | "library" | "unknown"; language: string }>; totalCount: number } {
+  const allServices: Array<{ name: string; path: string; type: "backend" | "frontend" | "mobile" | "library" | "unknown"; language: string }> = [];
   const manifestFiles = allFiles.filter((f) => SERVICE_MANIFEST_FILES.has(path.basename(f.path)));
 
   // Group by directory (excluding root)
@@ -464,35 +471,46 @@ function detectServices(
   }
 
   for (const [dir, manifests] of Object.entries(byDir)) {
-    // Stop if we have enough services
-    if (services.length >= MAX_SERVICES) break;
-    
     const serviceName = path.basename(dir);
     const servicePath = path.join(projectPath, dir);
+    const nameLower = serviceName.toLowerCase();
 
     // Skip if the directory name looks like a non-service
-    if (NON_SERVICE_DIRS.has(serviceName.toLowerCase())) continue;
+    if (NON_SERVICE_DIRS.has(nameLower)) continue;
 
     // Detect type and language based on manifest files
     let type: "backend" | "frontend" | "mobile" | "library" | "unknown" = "unknown";
     let language = "Unknown";
 
+    // Check for library patterns first
+    const isLikelyLibrary = LIBRARY_NAME_PATTERNS.some((p) => nameLower.includes(p));
+
     if (manifests.includes("pom.xml") || manifests.includes("build.gradle")) {
-      type = "backend";
       language = "Java";
+      // Check if it's a library by looking for common patterns
+      type = isLikelyLibrary ? "library" : "backend";
     } else if (manifests.includes("go.mod")) {
-      type = "backend";
       language = "Go";
+      type = isLikelyLibrary ? "library" : "backend";
     } else if (manifests.includes("Cargo.toml")) {
-      type = "backend";
       language = "Rust";
+      type = isLikelyLibrary ? "library" : "backend";
     } else if (manifests.includes("requirements.txt") || manifests.includes("pyproject.toml")) {
-      type = "backend";
       language = "Python";
+      type = isLikelyLibrary ? "library" : "backend";
     } else if (manifests.includes("pubspec.yaml")) {
       type = "mobile";
       language = "Dart (Flutter)";
     } else if (manifests.includes("package.json")) {
+      // Check package.json content for library indicators
+      const pkgJsonPath = Object.keys(configFiles).find((p) => 
+        p.includes(dir) && p.endsWith("package.json")
+      );
+      const pkgContent = pkgJsonPath ? configFiles[pkgJsonPath] : "";
+      const hasMainExport = pkgContent.includes('"main"') || pkgContent.includes('"exports"');
+      const hasBin = pkgContent.includes('"bin"');
+      const hasStartScript = pkgContent.includes('"start"');
+      
       // Check if frontend or backend Node.js
       const dirFiles = allFiles.filter((f) => f.path.startsWith(servicePath));
       const hasTsx = dirFiles.some((f) => f.ext === ".tsx" || f.ext === ".jsx");
@@ -502,6 +520,9 @@ function detectServices(
       if (hasTsx || hasVue || hasSvelte) {
         type = "frontend";
         language = hasTsx ? "TypeScript (React)" : hasVue ? "Vue" : "Svelte";
+      } else if (isLikelyLibrary || (hasMainExport && !hasBin && !hasStartScript)) {
+        type = "library";
+        language = "TypeScript/JavaScript";
       } else {
         type = "backend";
         language = "Node.js";
@@ -510,22 +531,23 @@ function detectServices(
     
     // Use service name as a hint if type is still unknown
     if (type === "unknown") {
-      const nameLower = serviceName.toLowerCase();
       if (nameLower.includes("api") || nameLower.includes("backend") || nameLower.includes("server") || nameLower.includes("service")) {
         type = "backend";
       } else if (nameLower.includes("web") || nameLower.includes("frontend") || nameLower.includes("client") || nameLower.includes("ui") || nameLower.includes("app")) {
         type = "frontend";
       } else if (nameLower.includes("mobile") || nameLower.includes("ios") || nameLower.includes("android")) {
         type = "mobile";
-      } else if (nameLower.includes("lib") || nameLower.includes("common") || nameLower.includes("shared") || nameLower.includes("core")) {
-        type = "library";
       }
     }
 
-    services.push({ name: serviceName, path: dir, type, language });
+    allServices.push({ name: serviceName, path: dir, type, language });
   }
 
-  return services;
+  // Return all services but track total count
+  const totalCount = allServices.length;
+  const displayedServices = allServices.slice(0, MAX_SERVICES_DISPLAYED);
+  
+  return { services: displayedServices, totalCount };
 }
 
 function detectStack(
@@ -535,7 +557,7 @@ function detectStack(
 ): DetectedStack {
   const languages = detectLanguages(allFiles);
   const frameworks = detectFrameworks(configFiles);
-  const services = detectServices(projectPath, allFiles);
+  const { services, totalCount: totalServiceCount } = detectServices(projectPath, allFiles, configFiles);
 
   // Detect monorepo
   const manifestCount = allFiles.filter((f) => SERVICE_MANIFEST_FILES.has(path.basename(f.path))).length;
@@ -574,6 +596,7 @@ function detectStack(
     frameworks,
     isMonorepo,
     services,
+    totalServiceCount,
     hasDatabase,
     hasInfrastructure,
     hasTests,
@@ -829,9 +852,14 @@ export function buildProjectContext(snapshot: ProjectSnapshot): string {
     `- Has tests: ${stack.hasTests ? "Yes" : "No"}`,
   ].join("\n");
 
-  const servicesSection = stack.services.length > 0
-    ? `### Detected Services\n${stack.services.map((s) => `- **${s.name}** (${s.type}) — ${s.language} — \`${s.path}\``).join("\n")}`
-    : "";
+  let servicesSection = "";
+  if (stack.services.length > 0) {
+    const servicesList = stack.services.map((s) => `- **${s.name}** (${s.type}) — ${s.language} — \`${s.path}\``).join("\n");
+    const truncatedNote = stack.totalServiceCount > stack.services.length 
+      ? `\n\n*Showing ${stack.services.length} of ${stack.totalServiceCount} services*` 
+      : "";
+    servicesSection = `### Detected Services\n${servicesList}${truncatedNote}`;
+  }
 
   const configSection = Object.entries(snapshot.configFiles)
     .map(([filePath, content]) => {

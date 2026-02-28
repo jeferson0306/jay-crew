@@ -417,7 +417,10 @@ async function main(): Promise<void> {
   log("🔬", `Stack detected: ${langStr || "unknown"}${frameworkStr ? ` · ${frameworkStr}` : ""}`);
   
   if (stack.isMonorepo) {
-    log("📦", `Monorepo with ${stack.services.length} services detected`);
+    const serviceCountText = stack.totalServiceCount > stack.services.length
+      ? `${stack.services.length} of ${stack.totalServiceCount} services shown`
+      : `${stack.services.length} services detected`;
+    log("📦", `Monorepo with ${serviceCountText}`);
   }
   console.log("");
 

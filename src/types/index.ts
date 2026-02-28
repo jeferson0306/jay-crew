@@ -45,6 +45,9 @@ export interface DetectedStack {
     language: string;
   }>;
   
+  // Total number of services found (may be more than services.length if truncated)
+  totalServiceCount: number;
+  
   // Has database-related files
   hasDatabase: boolean;
   
