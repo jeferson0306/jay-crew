@@ -18,6 +18,7 @@ const VALID_ROLES: SpecialistRole[] = [
   "product-owner", "business-analyst", "software-architect",
   "backend-dev", "frontend-dev", "mobile-dev",
   "devops", "security", "qa", "tech-writer", "ai-ml", "performance",
+  "data-engineer",
 ];
 
 const VALID_PERSONAS: PersonaRole[] = [
@@ -90,6 +91,7 @@ AVAILABLE SPECIALISTS:
   Delivery:    product-owner, business-analyst, software-architect
                backend-dev, frontend-dev, mobile-dev
   Operations:  devops, security, qa, tech-writer, ai-ml, performance
+  Data:        data-engineer
 
 AVAILABLE PERSONAS:
   new-dev        Guided, educational, step-by-step explanations for newcomers
@@ -125,37 +127,40 @@ function suggestSpecialists(request: string): SpecialistRole[] {
     suggested.add("frontend-dev");
     suggested.add("canvas");
   }
-  if (r.match(/api|endpoint|route|database|schema|migration|model|query|backend|server/)) {
+  if (r.match(/api|endpoint|route|backend|server|service|controller|rest|graphql|grpc/)) {
     suggested.add("backend-dev");
   }
-  if (r.match(/mobile|ios|android|react native|flutter|expo|native/)) {
+  if (r.match(/database|schema|migration|model|query|table|sql|index|data model|etl|dw|warehouse/)) {
+    suggested.add("data-engineer");
+  }
+  if (r.match(/mobile|ios|android|react native|flutter|expo|native app/)) {
     suggested.add("mobile-dev");
   }
-  if (r.match(/deploy|docker|ci|cd|kubernetes|k8s|infrastructure|devops|pipeline|cloud/)) {
+  if (r.match(/deploy|docker|ci|cd|kubernetes|k8s|infrastructure|devops|pipeline|cloud|container/)) {
     suggested.add("devops");
   }
-  if (r.match(/security|secure|vulnerability|owasp|pentest|encrypt|permission|rbac/)) {
+  if (r.match(/security|secure|vulnerability|owasp|pentest|encrypt|permission|rbac|cve|audit/)) {
     suggested.add("security");
   }
-  if (r.match(/performance|optimize|speed|slow|cache|scale|load|latency|memory/)) {
+  if (r.match(/performance|optimize|speed|slow|cache|scale|load|latency|memory|profil/)) {
     suggested.add("performance");
   }
-  if (r.match(/test|testing|coverage|e2e|unit|integration|vitest|jest|playwright/)) {
+  if (r.match(/test|testing|coverage|e2e|unit|integration|quality|tdd|bdd/)) {
     suggested.add("qa");
   }
-  if (r.match(/doc|readme|swagger|openapi|documentation|guide|changelog/)) {
+  if (r.match(/doc|readme|swagger|openapi|documentation|guide|changelog|api doc/)) {
     suggested.add("tech-writer");
   }
-  if (r.match(/\bai\b|ml|llm|gpt|claude|embedding|rag|chatbot|model|vector/)) {
+  if (r.match(/\bai\b|ml|llm|gpt|claude|embedding|rag|chatbot|vector|neural|machine learning/)) {
     suggested.add("ai-ml");
   }
-  if (r.match(/research|compare|evaluate|best practice|trend|library|framework|version/)) {
+  if (r.match(/research|compare|evaluate|best practice|trend|library|framework|version|upgrade|update/)) {
     suggested.add("radar");
   }
-  if (r.match(/feature|product|requirement|story|roadmap|business|user story|backlog/)) {
+  if (r.match(/feature|product|requirement|story|roadmap|business|user story|backlog|mvp/)) {
     suggested.add("product-owner");
   }
-  if (r.match(/process|flow|business rule|operational|entity|integration|workflow/)) {
+  if (r.match(/process|flow|business rule|operational|entity|integration|workflow|domain/)) {
     suggested.add("business-analyst");
   }
 
@@ -163,6 +168,54 @@ function suggestSpecialists(request: string): SpecialistRole[] {
   suggested.add("engine");
 
   return Array.from(suggested).slice(0, 7);
+}
+
+// ─── Persona-aware crew boosting ─────────────────────────────────────────────
+
+function boostCrewByPersona(specialists: SpecialistRole[], persona?: PersonaRole): SpecialistRole[] {
+  if (!persona) return specialists;
+
+  const boosted = new Set(specialists);
+
+  switch (persona) {
+    case "due-diligence":
+      // Due diligence needs security, QA, and DevOps assessment
+      boosted.add("security");
+      boosted.add("qa");
+      boosted.add("devops");
+      boosted.add("radar");
+      break;
+
+    case "tech-migrator":
+      // Migration needs research on current vs target technologies
+      boosted.add("radar");
+      boosted.add("devops");
+      break;
+
+    case "new-dev":
+      // New developers benefit from documentation
+      boosted.add("tech-writer");
+      break;
+
+    case "tech-lead":
+      // Tech leads need security and infrastructure perspective
+      boosted.add("security");
+      boosted.add("devops");
+      break;
+
+    case "senior-dev":
+      // Senior devs want performance insights
+      boosted.add("performance");
+      break;
+
+    case "task-executor":
+      // Task executors need QA to verify implementation
+      boosted.add("qa");
+      break;
+  }
+
+  // Limit to 8 specialists max
+  return Array.from(boosted).slice(0, 8);
 }
 
 // ─── Load agent definition from markdown files ────────────────────────────────
@@ -267,7 +320,7 @@ You are advising a tech lead who owns the technical direction for a team. Frame 
 This analysis is being used for technical due diligence (acquisition, audit, or compliance review). Focus on risk and quality signals:
 
 - Assess technical debt level and its business impact
-- Surface security vulnerabilities and compliance gaps (OWASP, GDPR, SOC2, HIPAA)
+- Surface security vulnerabilities and compliance gaps (OWASP, GDPR, SOC2, HIPAA, LGPD)
 - Evaluate dependency health (outdated packages, abandoned libraries, license risks)
 - Identify single points of failure and operational risks
 - Summarize code quality signals (test coverage, linting, documentation, CI/CD maturity)
@@ -309,8 +362,15 @@ async function main(): Promise<void> {
   console.log("");
 
   // ── Select specialists ────────────────────────────────────────────────────────
-  const specialists = specificSpecialists ?? suggestSpecialists(userRequest);
+  let specialists = specificSpecialists ?? suggestSpecialists(userRequest);
+  
+  // Apply persona-based crew boosting
+  specialists = boostCrewByPersona(specialists, persona);
+  
   log("🧠", `Crew selected: ${specialists.join(", ")}`);
+  if (persona) {
+    log("🎯", `Persona "${persona}" boosted the crew with relevant specialists`);
+  }
   console.log("");
 
   // ── Load agent definitions ────────────────────────────────────────────────────
@@ -410,9 +470,10 @@ You are the **Jay Crew Orchestrator**.
 
 Using the agent definitions above and the project context provided:
 
-1. Confirm or adjust the suggested crew based on the request
-2. Run each specialist's X-Ray analysis (use their exact output format)
-3. Synthesize all X-Ray results into a final **Execution Plan** following the Orchestrator's Phase 2 format
+1. **Detect the technology stack** first (languages, frameworks, databases, tools)
+2. Confirm or adjust the suggested crew based on the request and detected stack
+3. Run each specialist's X-Ray analysis (use their exact output format)
+4. Synthesize all X-Ray results into a final **Execution Plan** following the Orchestrator's Phase 2 format
 `;
 }
 

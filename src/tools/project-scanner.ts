@@ -51,7 +51,7 @@ const CONFIG_FILE_CAP     = 8 * 1024;   // 8 KB — for config/dep files
 const P1_FULL_CAP         = 4 * 1024;   // 4 KB — P1 files read fully below this
 const CONTEXT_BUDGET_BYTES = 200_000;   // 200 KB — total source samples budget
 const MAX_TEST_FILES      = 3;
-const MAX_DEPTH           = 8;
+const MAX_DEPTH           = 15;  // Maven projects can go 10+ levels deep (src/main/java/com/company/pkg/sub/)
 
 // ─── Priority classifier ──────────────────────────────────────────────────────
 

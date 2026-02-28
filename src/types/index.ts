@@ -46,15 +46,16 @@ export type SpecialistRole =
   | "product-owner"      // Requirements & User Stories
   | "business-analyst"   // Business Processes & Rules
   | "software-architect" // Architecture & Technical Decisions
-  | "backend-dev"        // APIs, Database, Authentication
-  | "frontend-dev"       // Next.js, React, Tailwind, TypeScript
-  | "mobile-dev"         // React Native, Flutter, iOS/Android
-  | "devops"             // Docker, CI/CD, Kubernetes, IaC
-  | "security"           // OWASP, Pentest, Compliance
-  | "qa"                 // Unit, Integration & E2E Testing
-  | "tech-writer"        // Docs, README, Swagger/OpenAPI
+  | "backend-dev"        // APIs, Database, Authentication (any backend stack)
+  | "frontend-dev"       // Web UI (any frontend framework)
+  | "mobile-dev"         // Mobile Apps (any mobile stack)
+  | "devops"             // Docker, CI/CD, Kubernetes, IaC, Cloud
+  | "security"           // OWASP, Vulnerabilities, Compliance, Dependency Audit
+  | "qa"                 // Testing Strategy, Coverage, Quality Red Flags
+  | "tech-writer"        // Docs, README, API Documentation
   | "ai-ml"              // LLMs, Embeddings, RAG, ML Pipelines
-  | "performance";       // Optimization, Scalability, Cost
+  | "performance"        // Optimization, Scalability, Profiling
+  | "data-engineer";     // Database Design, Migrations, Query Optimization
 
 // ─── Persona profiles for Orchestrator output shaping ─────────────────────────
 
