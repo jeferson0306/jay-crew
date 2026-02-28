@@ -15,6 +15,8 @@
 Jay Crew is a CLI tool that **scans a software project** and generates a `crew-context.md` file containing:
 
 - The full project snapshot (tree, config files, dependencies, source samples)
+- **Automatic technology stack detection** (languages, frameworks, databases)
+- **Monorepo and multi-service detection**
 - The relevant agent definitions for the requested task
 - Activation instructions for the Orchestrator
 
@@ -24,17 +26,46 @@ You paste that file into **Claude Code** (or any AI assistant), say _"Run the Ja
 
 ---
 
-## Technology Agnostic
+## Automatic Stack Detection
 
-Jay Crew works with **any technology stack**:
+Jay Crew **automatically detects** the technology stack of any project:
 
-- **Backend**: Java (Spring Boot, Quarkus), Node.js, Python, Go, Rust, .NET, PHP
-- **Frontend**: React, Vue, Angular, Svelte, or any framework
-- **Mobile**: React Native, Flutter, native iOS/Android
-- **Databases**: PostgreSQL, MySQL, MongoDB, Oracle, Teradata, Snowflake
-- **Infrastructure**: Docker, Kubernetes, AWS, Azure, GCP
+```
+🔬  Stack detected: Java · Spring Boot, Docker
+📦  Monorepo with 3 services detected
+🧠  Crew selected: software-architect, backend-dev, devops, qa, engine
+```
 
-The agents automatically detect the project's stack and adapt their analysis accordingly.
+Based on the detected stack, Jay Crew **automatically selects the right specialists** — even with generic requests like "Full analysis".
+
+### Supported Technologies
+
+| Category | Technologies |
+|----------|-------------|
+| **Backend** | Java (Spring Boot, Quarkus, Micronaut), Kotlin, Go, Rust, Python, Node.js, .NET, PHP, Ruby |
+| **Frontend** | React, Vue, Angular, Svelte, Astro, Next.js, Nuxt, SvelteKit |
+| **Mobile** | Flutter, React Native, Swift, Kotlin |
+| **Databases** | PostgreSQL, MySQL, MongoDB, Oracle, SQL Server, Teradata, Snowflake, Redis |
+| **Infrastructure** | Docker, Kubernetes, GitHub Actions, GitLab CI, Azure Pipelines, Jenkins |
+| **Monorepo Tools** | Nx, Lerna, Turborepo |
+
+---
+
+## Monorepo & Multi-Service Support
+
+Jay Crew detects **monorepos and multi-service architectures**:
+
+- Identifies individual services within the repository
+- Classifies each service by type (backend, frontend, mobile, library)
+- Detects the primary language of each service
+- Automatically includes `software-architect` and `devops` for complex architectures
+
+```
+📦  Monorepo with 3 services detected
+    - api-gateway (backend) — Java
+    - web-app (frontend) — TypeScript (React)
+    - mobile-app (mobile) — Dart (Flutter)
+```
 
 ---
 
@@ -48,19 +79,25 @@ Step 2 ──► Jay Crew scans the project locally
            Builds a full snapshot (tree, configs, deps, source)
                │
                ▼
-Step 3 ──► Detects the technology stack automatically
-           Suggests the right specialists based on your request
+Step 3 ──► Detects technology stack automatically
+           Identifies languages, frameworks, and services
                │
                ▼
-Step 4 ──► Generates crew-context-{timestamp}.md
+Step 4 ──► Auto-selects specialists based on:
+           • Keywords in your request
+           • Detected technology stack
+           • Persona (if specified)
+               │
+               ▼
+Step 5 ──► Generates crew-context-{timestamp}.md
            with project context + agent definitions
                │
                ▼
-Step 5 ──► You paste the file into Claude Code
+Step 6 ──► You paste the file into Claude Code
            "Run the Jay Crew on this context"
                │
                ▼
-Step 6 ──► Claude acts as the Orchestrator
+Step 7 ──► Claude acts as the Orchestrator
            Runs each specialist's X-Ray
            Produces the final Execution Plan
 ```
@@ -79,6 +116,7 @@ Jay Crew produces a **context file** — it does not produce the analysis itself
 │                                                                 │
 │  Output: crew-context-{timestamp}.md                            │
 │  ✓ File tree + config files + dependency list                   │
+│  ✓ Detected stack: languages, frameworks, services              │
 │  ✓ Source files (full or skeletal, up to 200 KB budget)         │
 │  ✓ Agent definitions (Orchestrator + selected specialists)      │
 │  ✗ No AI calls. No analysis yet. Just structured context.       │
@@ -91,15 +129,11 @@ Jay Crew produces a **context file** — it does not produce the analysis itself
 │  > "You are the Jay Crew Orchestrator.                          │
 │     Run the full crew analysis for the task described below."   │
 │                                                                 │
-│  ✓ Orchestrator detects the stack and assembles the crew        │
+│  ✓ Orchestrator confirms the detected stack                     │
 │  ✓ Each specialist runs their X-Ray analysis                    │
 │  ✓ Final Execution Plan synthesized from all X-Rays             │
 └─────────────────────────────────────────────────────────────────┘
 ```
-
-> **The CLI output (metrics like "56 files in context · 42 KB used") is not the analysis.**
-> It tells you what was packed into the context file. The actual multi-specialist report
-> is generated in Step 2 by the AI.
 
 ---
 
@@ -122,7 +156,7 @@ Jay Crew produces a **context file** — it does not produce the analysis itself
 | `business-analyst` | `agents/specialists/business-analyst.md` | Business processes, rules, operational flows, entity mapping |
 | `software-architect` | `agents/specialists/software-architect.md` | System architecture, C4 diagrams, ADRs, scalability |
 | `backend-dev` | `agents/specialists/backend-dev.md` | APIs, database schema, auth, server logic — any backend stack |
-| `frontend-dev` | `agents/specialists/frontend-dev.md` | Web UI — any frontend framework (React, Vue, Angular, Svelte, etc.) |
+| `frontend-dev` | `agents/specialists/frontend-dev.md` | Web UI — any frontend framework |
 | `mobile-dev` | `agents/specialists/mobile-dev.md` | Mobile apps — React Native, Flutter, native iOS/Android |
 | `data-engineer` | `agents/specialists/data-engineer.md` | Database design, migrations, query optimization, data pipelines |
 | `devops` | `agents/specialists/devops.md` | Docker, CI/CD, Kubernetes, IaC, observability |
@@ -134,12 +168,49 @@ Jay Crew produces a **context file** — it does not produce the analysis itself
 
 ---
 
+## Smart Crew Selection
+
+Jay Crew selects specialists using **three layers**:
+
+### 1. Keyword-based (from your request)
+
+| Keywords in Request | Specialists Added |
+|---------------------|-------------------|
+| auth, login, jwt, oauth | backend-dev, security |
+| ui, component, frontend | frontend-dev, canvas |
+| database, schema, migration | data-engineer |
+| docker, ci/cd, kubernetes | devops |
+| test, coverage, quality | qa |
+| performance, optimize, cache | performance |
+
+### 2. Stack-based (from detected technologies)
+
+| Detected Stack | Specialists Added |
+|----------------|-------------------|
+| Java, Go, Python, Node.js | backend-dev |
+| React, Vue, Angular, Svelte | frontend-dev |
+| Flutter, Swift, Dart | mobile-dev |
+| SQL files, migrations, Prisma | data-engineer |
+| Docker, Kubernetes, CI/CD | devops |
+| Test files detected | qa |
+| Monorepo detected | software-architect, devops |
+
+### 3. Persona-based (from --persona flag)
+
+| Persona | Specialists Added |
+|---------|-------------------|
+| `due-diligence` | security, qa, devops, radar |
+| `tech-migrator` | radar, devops |
+| `tech-lead` | security, devops |
+| `senior-dev` | performance |
+| `new-dev` | tech-writer |
+| `task-executor` | qa |
+
+---
+
 ## Personas
 
 Use `--persona` (or `-r`) to shape how the Orchestrator presents its analysis.
-Each persona injects a context block that instructs the AI to adapt its tone, depth, and focus.
-
-**Personas also boost the crew** — relevant specialists are automatically added based on the persona.
 
 | Persona | Best for | Auto-boost |
 |---------|----------|------------|
@@ -196,52 +267,36 @@ Data:        data-engineer
 ### Examples
 
 ```bash
-# Analyze any external project (any stack)
-npx tsx src/index.ts --project ~/my-spring-boot-app "Add JWT authentication"
+# Analyze any project — stack is auto-detected
+npx tsx src/index.ts --project ~/my-project "Full analysis"
 
-# Analyze a Python/Django project
-npx tsx src/index.ts --project ~/my-django-app "Add caching layer"
+# The CLI will output something like:
+# 🔬  Stack detected: Java · Spring Boot, Docker
+# 🧠  Crew selected: software-architect, backend-dev, devops, qa, engine
 
-# Analyze a Node.js project
-npx tsx src/index.ts --project ~/my-express-api "Implement rate limiting"
-
-# Force specific specialists
+# Force specific specialists if needed
 npx tsx src/index.ts -p ~/my-app -s backend-dev,security,data-engineer "Add user audit logs"
 
-# Full-stack feature planning
-npx tsx src/index.ts -p ~/my-saas "Add a subscription billing system with Stripe"
+# Use personas for different analysis styles
+npx tsx src/index.ts -p ~/my-app --persona new-dev "Explain the codebase"
+npx tsx src/index.ts -p ~/my-app --persona senior-dev "Optimize performance"
+npx tsx src/index.ts -p ~/my-app --persona tech-lead "Evaluate architecture"
+npx tsx src/index.ts -p ~/my-app --persona due-diligence "Full technical audit"
 
-# Onboard a new developer to an existing feature
-npx tsx src/index.ts -p ~/my-app --persona new-dev "Explain how the authentication flow works"
-
-# Get a senior-level deep-dive before a refactor
-npx tsx src/index.ts -p ~/my-api --persona senior-dev "Optimize database queries"
-
-# Plan a framework migration
-npx tsx src/index.ts -p ~/my-app --persona tech-migrator "Migrate from monolith to microservices"
-
-# Get straight to implementation with no fluff
-npx tsx src/index.ts -p ~/my-app --persona task-executor "Add rate limiting to the API"
-
-# Prepare a technical decision for the team
-npx tsx src/index.ts -p ~/my-saas --persona tech-lead "Evaluate adding a message queue"
-
-# Audit the codebase for acquisition due diligence
-npx tsx src/index.ts -p ~/their-project --persona due-diligence "Full technical audit"
+# Monorepo analysis
+npx tsx src/index.ts -p ~/my-monorepo "Analyze all services"
+# 📦  Monorepo with 5 services detected
 ```
 
 ### Output
 
-A `crew-context-{timestamp}.md` file is generated containing everything the AI needs:
-
 ```
-crew-context-{timestamp}.md
-├── Project snapshot (tree, configs, dependencies, source samples)
-│   └── Source files selected by priority: P0 (schemas/docs) → P1 (core logic) → P2 (other)
-├── Persona context block (if --persona is used)
-├── Suggested crew for the task (boosted by persona)
-├── Orchestrator definition (Phase 1 + Phase 2 format)
-└── Each selected specialist's definition (identity + X-Ray format)
+✅  234 files scanned in 0.1s — 133 files in context (35 full · 98 skel) · 100 KB used
+🔬  Stack detected: Java · Spring Boot, Docker
+📦  Monorepo with 3 services detected
+🧠  Crew selected: software-architect, backend-dev, devops, qa, engine
+🎯  Persona "due-diligence" boosted the crew with relevant specialists
+✅  Context file saved: crew-context-{timestamp}.md
 ```
 
 **Then paste it into Claude Code and say:**
@@ -275,11 +330,11 @@ jay-crew/
 │       └── performance.md
 ├── src/
 │   ├── tools/
-│   │   ├── project-scanner.ts    ← Scans target project filesystem
+│   │   ├── project-scanner.ts    ← Scans filesystem, detects stack & services
 │   │   └── path-utils.ts         ← Path helpers & file tree formatting
 │   ├── types/
-│   │   └── index.ts              ← TypeScript types
-│   └── index.ts                  ← CLI entry point, persona boosting, context builder
+│   │   └── index.ts              ← TypeScript types (including DetectedStack)
+│   └── index.ts                  ← CLI entry point, stack boosting, context builder
 ├── package.json
 └── tsconfig.json
 ```
@@ -288,8 +343,10 @@ jay-crew/
 
 - **No API calls** — Jay Crew only reads the filesystem; the AI runs externally
 - **Technology agnostic** — Each agent detects and adapts to the project's stack
+- **Automatic stack detection** — Languages, frameworks, and services are detected automatically
+- **Monorepo aware** — Identifies and classifies services within complex repositories
+- **Smart specialist selection** — Keywords + stack detection + personas suggest the right crew
 - **Agent definitions as markdown** — Each agent is a plain `.md` file, easy to read and extend
-- **Smart specialist selection** — Keyword heuristics + persona boosting suggest the right crew
 - **Bring your own AI** — Works with Claude Code, ChatGPT, Gemini, or any AI assistant
 
 ---
@@ -299,8 +356,9 @@ jay-crew/
 1. Create `agents/specialists/my-agent.md` following the existing format
 2. Add `"my-agent"` to the `SpecialistRole` type in `src/types/index.ts`
 3. Add `"my-agent"` to the `VALID_ROLES` array in `src/index.ts`
-4. Add the keyword heuristics to `suggestSpecialists()` in `src/index.ts`
-5. (Optional) Add the agent to `boostCrewByPersona()` if it should be auto-added for certain personas
+4. Add keyword heuristics to `suggestSpecialistsByRequest()` in `src/index.ts`
+5. (Optional) Add stack-based boosting to `boostCrewByStack()` if relevant
+6. (Optional) Add persona-based boosting to `boostCrewByPersona()` if relevant
 
 That's it — no other changes needed.
 
@@ -312,15 +370,16 @@ That's it — no other changes needed.
 
 ```bash
 npx tsx src/index.ts \
-  --project ~/my-ecommerce \
+  --project ~/my-project \
   --persona senior-dev \
-  "Audit the authentication flow and create an implementation plan for RBAC"
+  "Full technical audit"
 ```
 
 Output:
 ```
-✅  96 files scanned in 0.0s — 56 files in context (11 full · 45 skel) · 42 KB used
-🧠  Crew selected: software-architect, security, backend-dev, engine, performance
+✅  234 files scanned in 0.1s — 133 files in context (35 full · 98 skel) · 100 KB used
+🔬  Stack detected: Java · Spring Boot, Docker
+🧠  Crew selected: software-architect, backend-dev, devops, qa, engine, performance
 🎯  Persona "senior-dev" boosted the crew with relevant specialists
 ✅  Context file saved: crew-context-{timestamp}.md
 ```
@@ -337,13 +396,15 @@ Claude will act as the Orchestrator, run each specialist's X-Ray, and produce a 
 
 ### What you get
 
-A full multi-specialist report with, for example:
+A full multi-specialist report with:
 
 | Specialist | Delivers |
 |------------|----------|
 | `software-architect` | Architecture overview, component diagram, integration points |
-| `security` | Auth flow audit, OWASP gaps, dependency vulnerabilities, RBAC risk assessment |
-| `backend-dev` | API contracts, DB schema changes, migration plan (adapted to your stack) |
+| `security` | Auth flow audit, OWASP gaps, dependency vulnerabilities |
+| `backend-dev` | API contracts, data models, migration plan (adapted to your stack) |
+| `devops` | Infrastructure analysis, CI/CD recommendations, deployment strategy |
+| `qa` | Test coverage, quality red flags, testing strategy |
 | `engine` | Code quality, logic edge cases, refactoring priorities |
 | **Orchestrator** | **Phased Execution Plan** — all findings synthesized into actionable steps |
 

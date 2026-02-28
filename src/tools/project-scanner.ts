@@ -363,6 +363,24 @@ function detectFrameworks(configFiles: Record<string, string>): string[] {
   return [...new Set(frameworks)];
 }
 
+// Directories that are not real services (test fixtures, examples, internal modules)
+const NON_SERVICE_DIRS = new Set([
+  "test", "tests", "__tests__", "spec", "specs", "e2e",
+  "example", "examples", "sample", "samples", "demo", "demos",
+  "fixture", "fixtures", "mock", "mocks", "stub", "stubs",
+  "doc", "docs", "documentation",
+  "script", "scripts", "bin", "tools", "util", "utils",
+  "config", "configs", "configuration",
+  "lib", "libs", "vendor", "third-party", "third_party",
+  "generated", "gen", "build", "dist", "out", "output",
+  "resources", "assets", "static", "public",
+  "src", "main", "java", "kotlin", "scala", // Java package structure folders
+  "com", "org", "net", "io", "br", "us", "uk", "de", "fr", // Common package prefixes
+]);
+
+const MAX_SERVICES = 15; // Reasonable limit for service count
+const MAX_SERVICE_DEPTH = 2; // Only look 2 levels deep for services
+
 function detectServices(
   projectPath: string,
   allFiles: Array<{ path: string; size: number; ext: string }>
@@ -375,16 +393,33 @@ function detectServices(
   for (const f of manifestFiles) {
     const rel = path.relative(projectPath, f.path);
     const dir = path.dirname(rel);
-    if (dir === ".") continue; // Skip root-level manifests for service detection
+    
+    // Skip root-level manifests
+    if (dir === ".") continue;
+    
+    // Only consider first MAX_SERVICE_DEPTH levels
+    const depth = dir.split(path.sep).length;
+    if (depth > MAX_SERVICE_DEPTH) continue;
+    
+    // Skip non-service directories
+    const dirParts = dir.split(path.sep);
+    if (dirParts.some((part) => NON_SERVICE_DIRS.has(part.toLowerCase()))) continue;
+    
     if (!byDir[dir]) byDir[dir] = [];
     byDir[dir].push(path.basename(f.path));
   }
 
   for (const [dir, manifests] of Object.entries(byDir)) {
+    // Stop if we have enough services
+    if (services.length >= MAX_SERVICES) break;
+    
     const serviceName = path.basename(dir);
     const servicePath = path.join(projectPath, dir);
 
-    // Detect type and language
+    // Skip if the directory name looks like a non-service
+    if (NON_SERVICE_DIRS.has(serviceName.toLowerCase())) continue;
+
+    // Detect type and language based on manifest files
     let type: "backend" | "frontend" | "mobile" | "library" | "unknown" = "unknown";
     let language = "Unknown";
 
@@ -416,6 +451,20 @@ function detectServices(
       } else {
         type = "backend";
         language = "Node.js";
+      }
+    }
+    
+    // Use service name as a hint if type is still unknown
+    if (type === "unknown") {
+      const nameLower = serviceName.toLowerCase();
+      if (nameLower.includes("api") || nameLower.includes("backend") || nameLower.includes("server") || nameLower.includes("service")) {
+        type = "backend";
+      } else if (nameLower.includes("web") || nameLower.includes("frontend") || nameLower.includes("client") || nameLower.includes("ui") || nameLower.includes("app")) {
+        type = "frontend";
+      } else if (nameLower.includes("mobile") || nameLower.includes("ios") || nameLower.includes("android")) {
+        type = "mobile";
+      } else if (nameLower.includes("lib") || nameLower.includes("common") || nameLower.includes("shared") || nameLower.includes("core")) {
+        type = "library";
       }
     }
 
