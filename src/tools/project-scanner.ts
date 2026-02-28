@@ -314,8 +314,9 @@ function detectLanguages(
 function detectFrameworks(configFiles: Record<string, string>): string[] {
   const frameworks: string[] = [];
   const configNames = Object.keys(configFiles).map((p) => path.basename(p).toLowerCase());
+  const allContent = Object.values(configFiles).join("\n").toLowerCase();
 
-  // Backend frameworks
+  // Java frameworks
   if (configNames.some((n) => n === "pom.xml")) {
     const pomContent = Object.values(configFiles).find((c) => c.includes("<artifactId>"));
     if (pomContent?.includes("spring-boot")) frameworks.push("Spring Boot");
@@ -326,30 +327,71 @@ function detectFrameworks(configFiles: Record<string, string>): string[] {
   if (configNames.some((n) => n === "build.gradle" || n === "build.gradle.kts")) {
     frameworks.push("Gradle");
   }
+
+  // Go
   if (configNames.some((n) => n === "go.mod")) frameworks.push("Go");
+
+  // Rust
   if (configNames.some((n) => n === "cargo.toml")) frameworks.push("Rust");
-  if (configNames.some((n) => n === "requirements.txt" || n === "pyproject.toml")) {
-    frameworks.push("Python");
+
+  // Python frameworks
+  if (configNames.some((n) => n === "requirements.txt" || n === "pyproject.toml" || n === "setup.py")) {
+    if (allContent.includes("django")) frameworks.push("Django");
+    else if (allContent.includes("fastapi")) frameworks.push("FastAPI");
+    else if (allContent.includes("flask")) frameworks.push("Flask");
+    else frameworks.push("Python");
+  }
+  if (configNames.some((n) => n === "manage.py")) frameworks.push("Django");
+
+  // Ruby frameworks
+  if (configNames.some((n) => n === "gemfile")) {
+    if (allContent.includes("rails")) frameworks.push("Ruby on Rails");
+    else frameworks.push("Ruby");
+  }
+
+  // PHP frameworks
+  if (configNames.some((n) => n === "composer.json")) {
+    if (allContent.includes("laravel")) frameworks.push("Laravel");
+    else if (allContent.includes("symfony")) frameworks.push("Symfony");
+    else frameworks.push("PHP");
+  }
+
+  // .NET
+  if (configNames.some((n) => n.endsWith(".csproj") || n.endsWith(".sln"))) {
+    if (allContent.includes("aspnetcore") || allContent.includes("microsoft.aspnetcore")) {
+      frameworks.push("ASP.NET Core");
+    } else {
+      frameworks.push(".NET");
+    }
   }
 
   // Frontend frameworks
-  if (configNames.some((n) => n === "next.config.js" || n === "next.config.ts")) {
+  if (configNames.some((n) => n === "next.config.js" || n === "next.config.ts" || n === "next.config.mjs")) {
     frameworks.push("Next.js");
   }
-  if (configNames.some((n) => n === "nuxt.config.ts")) frameworks.push("Nuxt");
+  if (configNames.some((n) => n === "nuxt.config.ts" || n === "nuxt.config.js")) frameworks.push("Nuxt");
   if (configNames.some((n) => n === "svelte.config.js")) frameworks.push("SvelteKit");
   if (configNames.some((n) => n === "angular.json")) frameworks.push("Angular");
+  if (configNames.some((n) => n === "astro.config.mjs" || n === "astro.config.ts")) frameworks.push("Astro");
   if (configNames.some((n) => n === "vite.config.ts" || n === "vite.config.js")) {
     frameworks.push("Vite");
+  }
+  if (configNames.some((n) => n === "remix.config.js" || n === "remix.config.ts")) {
+    frameworks.push("Remix");
   }
 
   // Mobile
   if (configNames.some((n) => n === "pubspec.yaml")) frameworks.push("Flutter");
+  if (configNames.some((n) => n === "podfile")) frameworks.push("iOS (CocoaPods)");
+  if (configNames.some((n) => n === "build.gradle") && allContent.includes("com.android")) {
+    frameworks.push("Android");
+  }
 
   // Monorepo tools
   if (configNames.some((n) => n === "nx.json")) frameworks.push("Nx Monorepo");
   if (configNames.some((n) => n === "lerna.json")) frameworks.push("Lerna Monorepo");
   if (configNames.some((n) => n === "turbo.json")) frameworks.push("Turborepo");
+  if (configNames.some((n) => n === "pnpm-workspace.yaml")) frameworks.push("pnpm Workspace");
 
   // Infrastructure
   if (configNames.some((n) => n === "dockerfile")) frameworks.push("Docker");
@@ -359,6 +401,18 @@ function detectFrameworks(configFiles: Record<string, string>): string[] {
   if (configNames.some((n) => n.includes("kubernetes") || n.includes("k8s"))) {
     frameworks.push("Kubernetes");
   }
+  if (configNames.some((n) => n === "terraform.tf" || n.endsWith(".tf"))) {
+    frameworks.push("Terraform");
+  }
+  if (configNames.some((n) => n === "serverless.yml" || n === "serverless.yaml")) {
+    frameworks.push("Serverless Framework");
+  }
+
+  // CI/CD
+  if (configNames.some((n) => n === "jenkinsfile")) frameworks.push("Jenkins");
+  if (configNames.some((n) => n === ".gitlab-ci.yml")) frameworks.push("GitLab CI");
+  if (configNames.some((n) => n === "azure-pipelines.yml")) frameworks.push("Azure Pipelines");
+  if (configNames.some((n) => n === "bitbucket-pipelines.yml")) frameworks.push("Bitbucket Pipelines");
 
   return [...new Set(frameworks)];
 }

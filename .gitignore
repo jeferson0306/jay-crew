@@ -16,7 +16,8 @@ node_modules/
 # Claude
 .claude/
 
-# Planos gerados
+# Generated context files
+crew-context-*.md
 crew-plan-*.md
 xray-*.md
 
