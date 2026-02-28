@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import path from "node:path";
 import { formatBytes, projectTreeString } from "./path-utils.js";
-import type { FileNode, FileStats, ProjectSnapshot, SourceSampleMeta } from "../types/index.js";
+import type { FileNode, FileStats, ProjectSnapshot, SourceSampleMeta, DetectedStack } from "../types/index.js";
 
 // ─── Scanner configuration ────────────────────────────────────────────────────
 
@@ -25,19 +25,20 @@ const CONFIG_FILE_NAMES = new Set([
   "jest.config.js", "jest.config.ts", "vitest.config.ts", ".babelrc",
   "babel.config.js", "babel.config.json", ".env.example", "compose.yml",
   "compose.yaml", "kubernetes.yaml", "k8s.yaml", "app.config.ts", "app.config.js",
+  "pubspec.yaml", "angular.json", "nx.json", "lerna.json", "turbo.json",
 ]);
 
 const DEP_FILE_NAMES = new Set([
   "package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
   "bun.lockb", "requirements.txt", "Pipfile", "pyproject.toml",
   "Cargo.toml", "go.mod", "pom.xml", "build.gradle", "build.gradle.kts",
-  "Gemfile", "composer.json",
+  "Gemfile", "composer.json", "pubspec.yaml",
 ]);
 
 const SOURCE_EXTENSIONS = new Set([
   ".ts", ".tsx", ".js", ".jsx", ".mts", ".mjs", ".cjs", ".py", ".go",
   ".rs", ".java", ".rb", ".php", ".cs", ".cpp", ".c", ".h", ".hpp",
-  ".swift", ".kt", ".scala", ".vue", ".svelte", ".astro",
+  ".swift", ".kt", ".scala", ".vue", ".svelte", ".astro", ".dart",
 ]);
 
 const ENTRY_POINT_STEMS = [
@@ -51,23 +52,55 @@ const CONFIG_FILE_CAP     = 8 * 1024;   // 8 KB — for config/dep files
 const P1_FULL_CAP         = 4 * 1024;   // 4 KB — P1 files read fully below this
 const CONTEXT_BUDGET_BYTES = 200_000;   // 200 KB — total source samples budget
 const MAX_TEST_FILES      = 3;
-const MAX_DEPTH           = 15;  // Maven projects can go 10+ levels deep (src/main/java/com/company/pkg/sub/)
+const MAX_DEPTH           = 15;  // Maven projects can go 10+ levels deep
+
+// ─── Language detection mapping ──────────────────────────────────────────────
+
+const LANGUAGE_MAP: Record<string, string> = {
+  ".java": "Java",
+  ".kt": "Kotlin",
+  ".scala": "Scala",
+  ".go": "Go",
+  ".rs": "Rust",
+  ".py": "Python",
+  ".rb": "Ruby",
+  ".php": "PHP",
+  ".cs": "C#",
+  ".ts": "TypeScript",
+  ".tsx": "TypeScript (React)",
+  ".js": "JavaScript",
+  ".jsx": "JavaScript (React)",
+  ".mts": "TypeScript",
+  ".mjs": "JavaScript",
+  ".cjs": "JavaScript",
+  ".vue": "Vue",
+  ".svelte": "Svelte",
+  ".astro": "Astro",
+  ".swift": "Swift",
+  ".dart": "Dart",
+  ".cpp": "C++",
+  ".c": "C",
+  ".h": "C/C++",
+  ".hpp": "C++",
+};
+
+// ─── Service type detection ──────────────────────────────────────────────────
+
+const SERVICE_MANIFEST_FILES = new Set([
+  "package.json", "pom.xml", "build.gradle", "build.gradle.kts",
+  "go.mod", "Cargo.toml", "requirements.txt", "pyproject.toml",
+  "pubspec.yaml", "composer.json", "Gemfile",
+]);
 
 // ─── Priority classifier ──────────────────────────────────────────────────────
 
-/**
- * Classifies a source file into a priority tier:
- *   P0 — always include fully: migrations, schemas, architecture docs
- *   P1 — prefer full read: controllers, services, auth, middleware, store/context
- *   P2 — skeletal read only: all other source files
- */
 function classifyFilePriority(filePath: string): 0 | 1 | 2 {
   const name     = path.basename(filePath);
   const nameLower = name.toLowerCase();
   const stem     = nameLower.replace(/\.[^.]+$/, "");
   const dirLower = filePath.toLowerCase();
 
-  // ── P0: schemas, migrations, architecture docs ────────────────────────────
+  // P0: schemas, migrations, architecture docs
   if (
     stem.startsWith("readme") ||
     stem.startsWith("architecture") ||
@@ -85,7 +118,7 @@ function classifyFilePriority(filePath: string): 0 | 1 | 2 {
     return 0;
   }
 
-  // ── P1: core logic files ──────────────────────────────────────────────────
+  // P1: core logic files
   if (
     /resource|controller|router|handler|route|resolver/.test(nameLower) ||
     /service|repository|store|manager/.test(nameLower) ||
@@ -113,28 +146,20 @@ function isTestFile(filePath: string): boolean {
 
 const SKELETON_HEADER = "// [SKELETON] Full file not shown. Structural summary only.";
 
-/**
- * Extracts the structural skeleton of a source file.
- * P0 files are never skeleton'd. Used for P1 files > 4KB and all P2 files.
- */
 export function extractSkeleton(content: string, filePath: string): string {
   const ext   = path.extname(filePath).toLowerCase();
   const lines = content.split("\n");
 
-  // SQL files: always structural, never need skeletonizing
   if (ext === ".sql") return content;
-
   if (JVM_EXTS.has(ext))   return extractJvmSkeleton(lines);
   if (TS_JS_EXTS.has(ext)) return extractTsSkeleton(lines);
 
-  // Default: first 20 lines + last 5
   const head = lines.slice(0, 20);
   const tail = lines.slice(-5);
   const body = lines.length > 25 ? [...head, "// ...", ...tail] : lines;
   return [SKELETON_HEADER, ...body].join("\n");
 }
 
-/** Java / Kotlin skeleton: package, imports (max 10), class declaration, member signatures. */
 function extractJvmSkeleton(lines: string[]): string {
   const result: string[] = [SKELETON_HEADER];
   let importCount = 0;
@@ -147,13 +172,11 @@ function extractJvmSkeleton(lines: string[]): string {
     const prevDepth = braceDepth;
     braceDepth += opens - closes;
 
-    // Package declaration
     if (prevDepth === 0 && trimmed.startsWith("package ")) {
       result.push(line);
       continue;
     }
 
-    // Import statements (max 10)
     if (prevDepth === 0 && trimmed.startsWith("import ")) {
       if (importCount < 10)       result.push(line);
       else if (importCount === 10) result.push("// ... (more imports)");
@@ -161,7 +184,6 @@ function extractJvmSkeleton(lines: string[]): string {
       continue;
     }
 
-    // Depth 0: top-level annotations and class/interface/enum declarations
     if (prevDepth === 0) {
       if (
         trimmed.startsWith("@") ||
@@ -172,7 +194,6 @@ function extractJvmSkeleton(lines: string[]): string {
       continue;
     }
 
-    // Depth 1: inside the class body — show signatures, skip method bodies
     if (prevDepth === 1) {
       if (trimmed.startsWith("@")) {
         result.push(line);
@@ -185,7 +206,6 @@ function extractJvmSkeleton(lines: string[]): string {
 
       if (isMember) {
         if (opens > 0 && braceDepth > 1) {
-          // Method with body — show just the signature line
           const braceIdx = line.indexOf("{");
           result.push(line.substring(0, braceIdx).trimEnd() + " { ... }");
         } else {
@@ -194,7 +214,6 @@ function extractJvmSkeleton(lines: string[]): string {
         continue;
       }
 
-      // Closing brace of the class body
       if (trimmed === "}" || trimmed === "};") {
         result.push(line);
       }
@@ -204,7 +223,6 @@ function extractJvmSkeleton(lines: string[]): string {
   return result.join("\n");
 }
 
-/** TypeScript / JavaScript skeleton: imports (max 10), top-level exports, interface/type definitions. */
 function extractTsSkeleton(lines: string[]): string {
   const result: string[] = [SKELETON_HEADER];
   let importCount  = 0;
@@ -217,7 +235,6 @@ function extractTsSkeleton(lines: string[]): string {
     const opens   = (line.match(/\{/g) ?? []).length;
     const closes  = (line.match(/\}/g) ?? []).length;
 
-    // ── Inside an interface/type block: include fully ─────────────────────
     if (inTypeBlock) {
       result.push(line);
       typeDepth += opens - closes;
@@ -225,11 +242,8 @@ function extractTsSkeleton(lines: string[]): string {
       continue;
     }
 
-    // ── Only consider top-level lines (no indentation) ────────────────────
-    // Exception: allow tabs or 0 spaces to handle files using tabs
     if (indent > 0) continue;
 
-    // Import statements (max 10)
     if (trimmed.startsWith("import ")) {
       if (importCount < 10)        result.push(line);
       else if (importCount === 10) result.push("// ... (more imports)");
@@ -237,7 +251,6 @@ function extractTsSkeleton(lines: string[]): string {
       continue;
     }
 
-    // Interface / type blocks: include the whole block
     if (/^(export\s+)?(interface|type)\s/.test(trimmed)) {
       if (trimmed.includes("{")) {
         inTypeBlock = true;
@@ -245,13 +258,11 @@ function extractTsSkeleton(lines: string[]): string {
         result.push(line);
         if (typeDepth <= 0) inTypeBlock = false;
       } else {
-        // Single-line type alias: type Foo = string;
         result.push(line);
       }
       continue;
     }
 
-    // Top-level declarations: show signature only (no body)
     const isTopLevel =
       trimmed.startsWith("export ") ||
       trimmed.startsWith("class ")  ||
@@ -273,6 +284,197 @@ function extractTsSkeleton(lines: string[]): string {
   }
 
   return result.join("\n");
+}
+
+// ─── Stack detection ─────────────────────────────────────────────────────────
+
+function detectLanguages(
+  allFiles: Array<{ path: string; size: number; ext: string }>
+): Array<{ name: string; fileCount: number; percentage: number }> {
+  const sourceFiles = allFiles.filter((f) => SOURCE_EXTENSIONS.has(f.ext));
+  const total = sourceFiles.length;
+  if (total === 0) return [];
+
+  const counts: Record<string, number> = {};
+  for (const f of sourceFiles) {
+    const lang = LANGUAGE_MAP[f.ext] || f.ext;
+    counts[lang] = (counts[lang] || 0) + 1;
+  }
+
+  return Object.entries(counts)
+    .map(([name, fileCount]) => ({
+      name,
+      fileCount,
+      percentage: Math.round((fileCount / total) * 100),
+    }))
+    .sort((a, b) => b.fileCount - a.fileCount)
+    .slice(0, 10);
+}
+
+function detectFrameworks(configFiles: Record<string, string>): string[] {
+  const frameworks: string[] = [];
+  const configNames = Object.keys(configFiles).map((p) => path.basename(p).toLowerCase());
+
+  // Backend frameworks
+  if (configNames.some((n) => n === "pom.xml")) {
+    const pomContent = Object.values(configFiles).find((c) => c.includes("<artifactId>"));
+    if (pomContent?.includes("spring-boot")) frameworks.push("Spring Boot");
+    else if (pomContent?.includes("quarkus")) frameworks.push("Quarkus");
+    else if (pomContent?.includes("micronaut")) frameworks.push("Micronaut");
+    else frameworks.push("Java/Maven");
+  }
+  if (configNames.some((n) => n === "build.gradle" || n === "build.gradle.kts")) {
+    frameworks.push("Gradle");
+  }
+  if (configNames.some((n) => n === "go.mod")) frameworks.push("Go");
+  if (configNames.some((n) => n === "cargo.toml")) frameworks.push("Rust");
+  if (configNames.some((n) => n === "requirements.txt" || n === "pyproject.toml")) {
+    frameworks.push("Python");
+  }
+
+  // Frontend frameworks
+  if (configNames.some((n) => n === "next.config.js" || n === "next.config.ts")) {
+    frameworks.push("Next.js");
+  }
+  if (configNames.some((n) => n === "nuxt.config.ts")) frameworks.push("Nuxt");
+  if (configNames.some((n) => n === "svelte.config.js")) frameworks.push("SvelteKit");
+  if (configNames.some((n) => n === "angular.json")) frameworks.push("Angular");
+  if (configNames.some((n) => n === "vite.config.ts" || n === "vite.config.js")) {
+    frameworks.push("Vite");
+  }
+
+  // Mobile
+  if (configNames.some((n) => n === "pubspec.yaml")) frameworks.push("Flutter");
+
+  // Monorepo tools
+  if (configNames.some((n) => n === "nx.json")) frameworks.push("Nx Monorepo");
+  if (configNames.some((n) => n === "lerna.json")) frameworks.push("Lerna Monorepo");
+  if (configNames.some((n) => n === "turbo.json")) frameworks.push("Turborepo");
+
+  // Infrastructure
+  if (configNames.some((n) => n === "dockerfile")) frameworks.push("Docker");
+  if (configNames.some((n) => n.includes("docker-compose") || n.includes("compose.y"))) {
+    frameworks.push("Docker Compose");
+  }
+  if (configNames.some((n) => n.includes("kubernetes") || n.includes("k8s"))) {
+    frameworks.push("Kubernetes");
+  }
+
+  return [...new Set(frameworks)];
+}
+
+function detectServices(
+  projectPath: string,
+  allFiles: Array<{ path: string; size: number; ext: string }>
+): Array<{ name: string; path: string; type: "backend" | "frontend" | "mobile" | "library" | "unknown"; language: string }> {
+  const services: Array<{ name: string; path: string; type: "backend" | "frontend" | "mobile" | "library" | "unknown"; language: string }> = [];
+  const manifestFiles = allFiles.filter((f) => SERVICE_MANIFEST_FILES.has(path.basename(f.path)));
+
+  // Group by directory (excluding root)
+  const byDir: Record<string, string[]> = {};
+  for (const f of manifestFiles) {
+    const rel = path.relative(projectPath, f.path);
+    const dir = path.dirname(rel);
+    if (dir === ".") continue; // Skip root-level manifests for service detection
+    if (!byDir[dir]) byDir[dir] = [];
+    byDir[dir].push(path.basename(f.path));
+  }
+
+  for (const [dir, manifests] of Object.entries(byDir)) {
+    const serviceName = path.basename(dir);
+    const servicePath = path.join(projectPath, dir);
+
+    // Detect type and language
+    let type: "backend" | "frontend" | "mobile" | "library" | "unknown" = "unknown";
+    let language = "Unknown";
+
+    if (manifests.includes("pom.xml") || manifests.includes("build.gradle")) {
+      type = "backend";
+      language = "Java";
+    } else if (manifests.includes("go.mod")) {
+      type = "backend";
+      language = "Go";
+    } else if (manifests.includes("Cargo.toml")) {
+      type = "backend";
+      language = "Rust";
+    } else if (manifests.includes("requirements.txt") || manifests.includes("pyproject.toml")) {
+      type = "backend";
+      language = "Python";
+    } else if (manifests.includes("pubspec.yaml")) {
+      type = "mobile";
+      language = "Dart (Flutter)";
+    } else if (manifests.includes("package.json")) {
+      // Check if frontend or backend Node.js
+      const dirFiles = allFiles.filter((f) => f.path.startsWith(servicePath));
+      const hasTsx = dirFiles.some((f) => f.ext === ".tsx" || f.ext === ".jsx");
+      const hasVue = dirFiles.some((f) => f.ext === ".vue");
+      const hasSvelte = dirFiles.some((f) => f.ext === ".svelte");
+
+      if (hasTsx || hasVue || hasSvelte) {
+        type = "frontend";
+        language = hasTsx ? "TypeScript (React)" : hasVue ? "Vue" : "Svelte";
+      } else {
+        type = "backend";
+        language = "Node.js";
+      }
+    }
+
+    services.push({ name: serviceName, path: dir, type, language });
+  }
+
+  return services;
+}
+
+function detectStack(
+  projectPath: string,
+  allFiles: Array<{ path: string; size: number; ext: string }>,
+  configFiles: Record<string, string>
+): DetectedStack {
+  const languages = detectLanguages(allFiles);
+  const frameworks = detectFrameworks(configFiles);
+  const services = detectServices(projectPath, allFiles);
+
+  // Detect monorepo
+  const manifestCount = allFiles.filter((f) => SERVICE_MANIFEST_FILES.has(path.basename(f.path))).length;
+  const isMonorepo = services.length >= 2 || 
+    frameworks.some((f) => f.includes("Monorepo")) ||
+    manifestCount >= 3;
+
+  // Detect database
+  const hasDatabase = allFiles.some((f) => 
+    f.ext === ".sql" ||
+    f.path.toLowerCase().includes("migration") ||
+    f.path.toLowerCase().includes("schema") ||
+    path.basename(f.path) === "schema.prisma"
+  );
+
+  // Detect infrastructure
+  const hasInfrastructure = allFiles.some((f) => {
+    const name = path.basename(f.path).toLowerCase();
+    return name === "dockerfile" ||
+      name.includes("docker-compose") ||
+      name.includes("compose.y") ||
+      name.includes("kubernetes") ||
+      name.includes("k8s") ||
+      f.path.includes("/openshift/") ||
+      f.path.includes("/.github/workflows/") ||
+      name.includes("azure-pipeline") ||
+      name.includes("jenkinsfile") ||
+      name.includes(".gitlab-ci");
+  });
+
+  // Detect tests
+  const hasTests = allFiles.some((f) => isTestFile(f.path));
+
+  return {
+    languages,
+    frameworks,
+    isMonorepo,
+    services,
+    hasDatabase,
+    hasInfrastructure,
+    hasTests,
+  };
 }
 
 // ─── Scan functions ───────────────────────────────────────────────────────────
@@ -391,19 +593,14 @@ async function sampleSourceFiles(
 ): Promise<{ samples: Record<string, string>; meta: SourceSampleMeta }> {
   const sourceFiles = allFiles.filter((f) => SOURCE_EXTENSIONS.has(f.ext));
 
-  // Partition by priority
   const p0Files   = sourceFiles.filter((f) => classifyFilePriority(f.path) === 0);
   const p1All     = sourceFiles.filter((f) => classifyFilePriority(f.path) === 1);
   const p2All     = sourceFiles.filter((f) => classifyFilePriority(f.path) === 2);
 
-  // P1: test files capped, non-test first
   const p1NonTest = p1All.filter((f) => !isTestFile(f.path));
   const p1Tests   = p1All.filter((f) =>  isTestFile(f.path));
-
-  // P2: sorted by size descending so larger (more substantial) files go first
   const p2Sorted  = [...p2All].sort((a, b) => b.size - a.size);
 
-  // Process in priority order: P0 → P1 non-test → P1 test (capped) → P2
   const ordered = [...p0Files, ...p1NonTest, ...p1Tests, ...p2Sorted];
 
   const samples: Record<string, string> = {};
@@ -413,10 +610,8 @@ async function sampleSourceFiles(
   let fullCount = 0, skeletalCount = 0;
 
   for (const f of ordered) {
-    // Stop once budget is fully exhausted
     if (budgetUsed >= CONTEXT_BUDGET_BYTES) break;
 
-    // Enforce global test-file cap
     if (isTestFile(f.path)) {
       if (testCount >= MAX_TEST_FILES) continue;
       testCount++;
@@ -430,21 +625,16 @@ async function sampleSourceFiles(
       let skeletal: boolean;
 
       if (priority === 0) {
-        // P0: always read fully — migrations, schemas, architecture docs must never be truncated
         content  = raw;
         skeletal = false;
       } else if (priority === 1 && raw.length <= P1_FULL_CAP) {
-        // P1 small: read fully (skeleton of a 2KB file adds no value)
         content  = raw;
         skeletal = false;
       } else {
-        // P1 large or P2: skeletal reading
         content  = extractSkeleton(raw, f.path);
         skeletal = true;
       }
 
-      // Skip if this file alone would exceed the remaining budget
-      // (only applies when we already have content; never skip P0)
       if (priority > 0 && budgetUsed + content.length > CONTEXT_BUDGET_BYTES) continue;
 
       samples[f.path] = content;
@@ -482,6 +672,7 @@ export async function buildProjectSnapshot(projectPath: string): Promise<Project
   const depFiles    = await readDepFiles(allFiles);
   const entryPoints = detectEntryPoints(allFiles);
   const { samples: sourceSamples, meta: sourceMeta } = await sampleSourceFiles(allFiles);
+  const detectedStack = detectStack(projectPath, allFiles, configFiles);
 
   return {
     projectPath,
@@ -493,6 +684,7 @@ export async function buildProjectSnapshot(projectPath: string): Promise<Project
     sourceSamples,
     entryPoints,
     sourceMeta,
+    detectedStack,
   };
 }
 
@@ -518,6 +710,25 @@ export function buildProjectContext(snapshot: ProjectSnapshot): string {
     .slice(0, 10)
     .map(([ext, count]) => `  ${ext}: ${count}`)
     .join("\n");
+
+  // Stack summary
+  const stack = snapshot.detectedStack;
+  const langSummary = stack.languages.slice(0, 5)
+    .map((l) => `${l.name} (${l.percentage}%)`)
+    .join(", ");
+  
+  const stackLines = [
+    `- Primary languages: ${langSummary || "none detected"}`,
+    `- Frameworks: ${stack.frameworks.join(", ") || "none detected"}`,
+    `- Project type: ${stack.isMonorepo ? "Monorepo / Multi-service" : "Single project"}`,
+    `- Has database: ${stack.hasDatabase ? "Yes" : "No"}`,
+    `- Has infrastructure: ${stack.hasInfrastructure ? "Yes" : "No"}`,
+    `- Has tests: ${stack.hasTests ? "Yes" : "No"}`,
+  ].join("\n");
+
+  const servicesSection = stack.services.length > 0
+    ? `### Detected Services\n${stack.services.map((s) => `- **${s.name}** (${s.type}) — ${s.language} — \`${s.path}\``).join("\n")}`
+    : "";
 
   const configSection = Object.entries(snapshot.configFiles)
     .map(([filePath, content]) => {
@@ -554,6 +765,11 @@ ${treeOutput}
 
 ### Statistics
 ${statsLines}
+
+### Detected Technology Stack
+${stackLines}
+
+${servicesSection}
 
 ### File Types
 ${topExt}

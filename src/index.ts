@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { buildProjectSnapshot, buildProjectContext } from "./tools/project-scanner.js";
 import { resolveProjectPath } from "./tools/path-utils.js";
-import type { PersonaRole, SpecialistRole } from "./types/index.js";
+import type { PersonaRole, SpecialistRole, DetectedStack } from "./types/index.js";
 
 // ─── CLI argument parsing ─────────────────────────────────────────────────────
 
@@ -110,9 +110,9 @@ EXAMPLES:
 `);
 }
 
-// ─── Specialist suggestion heuristic (no AI needed) ──────────────────────────
+// ─── Specialist suggestion heuristic (keyword-based) ──────────────────────────
 
-function suggestSpecialists(request: string): SpecialistRole[] {
+function suggestSpecialistsByRequest(request: string): SpecialistRole[] {
   const r = request.toLowerCase();
   const suggested = new Set<SpecialistRole>();
 
@@ -167,7 +167,64 @@ function suggestSpecialists(request: string): SpecialistRole[] {
   // Always add engine for deep logic analysis
   suggested.add("engine");
 
-  return Array.from(suggested).slice(0, 7);
+  return Array.from(suggested);
+}
+
+// ─── Stack-based crew boosting ───────────────────────────────────────────────
+
+function boostCrewByStack(specialists: SpecialistRole[], stack: DetectedStack): SpecialistRole[] {
+  const boosted = new Set(specialists);
+
+  // Backend languages detected → add backend-dev
+  const backendLangs = ["Java", "Kotlin", "Go", "Rust", "Python", "Ruby", "PHP", "C#", "Node.js"];
+  const hasBackend = stack.languages.some((l) => 
+    backendLangs.some((bl) => l.name.includes(bl))
+  );
+  if (hasBackend) {
+    boosted.add("backend-dev");
+  }
+
+  // Frontend languages detected → add frontend-dev
+  const frontendLangs = ["React", "Vue", "Svelte", "Angular", "Astro"];
+  const hasFrontend = stack.languages.some((l) => 
+    frontendLangs.some((fl) => l.name.includes(fl))
+  ) || stack.frameworks.some((f) => 
+    ["Next.js", "Nuxt", "SvelteKit", "Angular", "Vite"].includes(f)
+  );
+  if (hasFrontend) {
+    boosted.add("frontend-dev");
+  }
+
+  // Mobile detected → add mobile-dev
+  const hasMobile = stack.frameworks.includes("Flutter") ||
+    stack.languages.some((l) => l.name === "Dart" || l.name === "Swift") ||
+    stack.services.some((s) => s.type === "mobile");
+  if (hasMobile) {
+    boosted.add("mobile-dev");
+  }
+
+  // Database detected → add data-engineer
+  if (stack.hasDatabase) {
+    boosted.add("data-engineer");
+  }
+
+  // Infrastructure detected → add devops
+  if (stack.hasInfrastructure) {
+    boosted.add("devops");
+  }
+
+  // Tests detected → add qa
+  if (stack.hasTests) {
+    boosted.add("qa");
+  }
+
+  // Monorepo/multi-service → emphasize architecture
+  if (stack.isMonorepo || stack.services.length >= 2) {
+    boosted.add("software-architect");
+    boosted.add("devops");
+  }
+
+  return Array.from(boosted);
 }
 
 // ─── Persona-aware crew boosting ─────────────────────────────────────────────
@@ -179,7 +236,6 @@ function boostCrewByPersona(specialists: SpecialistRole[], persona?: PersonaRole
 
   switch (persona) {
     case "due-diligence":
-      // Due diligence needs security, QA, and DevOps assessment
       boosted.add("security");
       boosted.add("qa");
       boosted.add("devops");
@@ -187,35 +243,29 @@ function boostCrewByPersona(specialists: SpecialistRole[], persona?: PersonaRole
       break;
 
     case "tech-migrator":
-      // Migration needs research on current vs target technologies
       boosted.add("radar");
       boosted.add("devops");
       break;
 
     case "new-dev":
-      // New developers benefit from documentation
       boosted.add("tech-writer");
       break;
 
     case "tech-lead":
-      // Tech leads need security and infrastructure perspective
       boosted.add("security");
       boosted.add("devops");
       break;
 
     case "senior-dev":
-      // Senior devs want performance insights
       boosted.add("performance");
       break;
 
     case "task-executor":
-      // Task executors need QA to verify implementation
       boosted.add("qa");
       break;
   }
 
-  // Limit to 8 specialists max
-  return Array.from(boosted).slice(0, 8);
+  return Array.from(boosted);
 }
 
 // ─── Load agent definition from markdown files ────────────────────────────────
@@ -359,13 +409,35 @@ async function main(): Promise<void> {
   const m = snapshot.sourceMeta;
   const budgetKb = Math.round(m.budgetUsedBytes / 1024);
   log("✅", `${snapshot.stats.totalFiles} files scanned in ${((Date.now() - start) / 1000).toFixed(1)}s — ${m.totalInContext} files in context (${m.fullCount} full · ${m.skeletalCount} skel) · ${budgetKb} KB used`);
+  
+  // ── Show detected stack ─────────────────────────────────────────────────────
+  const stack = snapshot.detectedStack;
+  const langStr = stack.languages.slice(0, 3).map((l) => l.name).join(", ");
+  const frameworkStr = stack.frameworks.slice(0, 3).join(", ");
+  log("🔬", `Stack detected: ${langStr || "unknown"}${frameworkStr ? ` · ${frameworkStr}` : ""}`);
+  
+  if (stack.isMonorepo) {
+    log("📦", `Monorepo with ${stack.services.length} services detected`);
+  }
   console.log("");
 
   // ── Select specialists ────────────────────────────────────────────────────────
-  let specialists = specificSpecialists ?? suggestSpecialists(userRequest);
+  let specialists: SpecialistRole[];
+  
+  if (specificSpecialists && specificSpecialists.length > 0) {
+    // User specified specialists manually
+    specialists = specificSpecialists;
+  } else {
+    // Auto-detect: keyword-based + stack-based boosting
+    specialists = suggestSpecialistsByRequest(userRequest);
+    specialists = boostCrewByStack(specialists, stack);
+  }
   
   // Apply persona-based crew boosting
   specialists = boostCrewByPersona(specialists, persona);
+  
+  // Limit to 8 specialists max
+  specialists = specialists.slice(0, 8);
   
   log("🧠", `Crew selected: ${specialists.join(", ")}`);
   if (persona) {
@@ -401,7 +473,7 @@ async function main(): Promise<void> {
 // ─── Context file builder ─────────────────────────────────────────────────────
 
 function buildContextFile(
-  snapshot: { projectName: string },
+  snapshot: { projectName: string; detectedStack: DetectedStack },
   projectContext: string,
   userRequest: string,
   specialists: SpecialistRole[],
@@ -417,6 +489,18 @@ function buildContextFile(
 
   const personaSection = persona
     ? `\n\n${buildPersonaBlock(persona)}\n`
+    : "";
+
+  // Stack summary for context
+  const stack = snapshot.detectedStack;
+  const stackSummary = [
+    `- **Languages**: ${stack.languages.slice(0, 5).map((l) => `${l.name} (${l.percentage}%)`).join(", ") || "not detected"}`,
+    `- **Frameworks**: ${stack.frameworks.join(", ") || "not detected"}`,
+    `- **Type**: ${stack.isMonorepo ? `Monorepo with ${stack.services.length} services` : "Single project"}`,
+  ].join("\n");
+
+  const servicesSection = stack.services.length > 0
+    ? `\n\n### Detected Services\n${stack.services.map((s) => `- **${s.name}** (${s.type}) — ${s.language}`).join("\n")}`
     : "";
 
   return `# Jay Crew — Project Briefing
@@ -440,9 +524,15 @@ The AI will act as the Orchestrator, run each specialist's X-Ray, and produce a 
 ${personaSection}
 ---
 
+## Detected Technology Stack
+
+${stackSummary}${servicesSection}
+
+---
+
 ## Suggested Crew
 
-Based on the request, the following specialists were selected:
+Based on the request and detected stack, the following specialists were selected:
 
 ${specialists.map((s) => `- \`${s}\``).join("\n")}
 
@@ -470,8 +560,8 @@ You are the **Jay Crew Orchestrator**.
 
 Using the agent definitions above and the project context provided:
 
-1. **Detect the technology stack** first (languages, frameworks, databases, tools)
-2. Confirm or adjust the suggested crew based on the request and detected stack
+1. **Confirm the detected technology stack** and note any additional technologies found
+2. Review the suggested crew — adjust if needed based on the detected stack
 3. Run each specialist's X-Ray analysis (use their exact output format)
 4. Synthesize all X-Ray results into a final **Execution Plan** following the Orchestrator's Phase 2 format
 `;

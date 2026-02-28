@@ -25,6 +25,36 @@ export interface SourceSampleMeta {
   p2Count: number;          // P2 files included (other, skeletal)
 }
 
+// ─── Detected technology stack ───────────────────────────────────────────────
+
+export interface DetectedStack {
+  // Languages detected (by file count)
+  languages: Array<{ name: string; fileCount: number; percentage: number }>;
+  
+  // Frameworks/platforms detected (by config files)
+  frameworks: string[];
+  
+  // Is this a monorepo or multi-service project?
+  isMonorepo: boolean;
+  
+  // Individual services detected (for monorepos)
+  services: Array<{
+    name: string;
+    path: string;
+    type: "backend" | "frontend" | "mobile" | "library" | "unknown";
+    language: string;
+  }>;
+  
+  // Has database-related files
+  hasDatabase: boolean;
+  
+  // Has infrastructure files (Docker, K8s, CI/CD)
+  hasInfrastructure: boolean;
+  
+  // Has test files
+  hasTests: boolean;
+}
+
 export interface ProjectSnapshot {
   projectPath: string;
   projectName: string;
@@ -35,6 +65,7 @@ export interface ProjectSnapshot {
   sourceSamples: Record<string, string>;
   entryPoints: string[];
   sourceMeta: SourceSampleMeta;
+  detectedStack: DetectedStack;
 }
 
 // ─── Available roles in Jay Crew ──────────────────────────────────────────────
