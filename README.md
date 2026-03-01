@@ -28,11 +28,46 @@ You paste that file into **Claude Code** (or any AI assistant), say _"Run the Ja
 
 ```bash
 # Run directly with npx (no installation needed)
-npx jay-crew --project ~/my-app "Full technical analysis"
+npx jay-crew@latest -p ~/my-project "Full technical analysis"
+```
 
-# Or install globally
+### First Run Experience
+
+```
+$ npx jay-crew@latest -p ~/my-project "Full analysis"
+
+Need to install the following packages:
+  jay-crew@0.1.2
+Ok to proceed? (y) y
+
+╔══════════════════════════════════════════════════╗
+║         JAY CREW — Multi-Agent AI Team          ║
+╚══════════════════════════════════════════════════╝
+
+📁  Project: /Users/you/my-project
+💬  Request: "Full analysis"
+
+🔍  Scanning target project...
+✅  234 files scanned in 0.1s — 133 files in context (35 full · 98 skel) · 100 KB used
+🔬  Stack detected: Java · Spring Boot, Docker, PostgreSQL
+📦  Monorepo with 3 services detected
+
+🧠  Crew selected: software-architect, backend-dev, devops, qa, engine
+
+📖  Loading agent definitions...
+✅  Context file saved: crew-context-2024-01-15T10-30-00.md
+
+─────────────────────────────────────────────────
+  Paste this file into Claude Code and say:
+  "Run the Jay Crew on this context."
+─────────────────────────────────────────────────
+```
+
+### Alternative: Install Globally
+
+```bash
 npm install -g jay-crew
-jay-crew --project ~/my-app "Add authentication with JWT"
+jay-crew -p ~/my-app "Add authentication with JWT"
 ```
 
 ---
