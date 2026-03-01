@@ -1,6 +1,12 @@
 # Jay Crew
 
+[![npm version](https://img.shields.io/npm/v/jay-crew.svg)](https://www.npmjs.com/package/jay-crew)
+[![npm downloads](https://img.shields.io/npm/dm/jay-crew.svg)](https://www.npmjs.com/package/jay-crew)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 > A multi-agent AI team that scans any project and generates a complete, structured briefing — ready to be executed by Claude Code or any AI assistant. No API key required.
+
+📦 **npm:** https://www.npmjs.com/package/jay-crew
 
 ```
 ╔══════════════════════════════════════════════════╗
@@ -37,7 +43,7 @@ npx jay-crew@latest -p ~/my-project "Full technical analysis"
 $ npx jay-crew@latest -p ~/my-project "Full analysis"
 
 Need to install the following packages:
-  jay-crew@0.1.2
+  jay-crew@0.1.3
 Ok to proceed? (y) y
 
 ╔══════════════════════════════════════════════════╗
