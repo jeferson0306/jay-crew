@@ -78,7 +78,7 @@ Jay Crew — Multi-Agent AI Team for Project Analysis & Planning
 ==============================================================
 
 USAGE:
-  npx tsx src/index.ts [options] "your request"
+  npx jay-crew [options] "your request"
 
 OPTIONS:
   --project,     -p <path>     Path to target project (default: current directory)
@@ -102,11 +102,11 @@ AVAILABLE PERSONAS:
   due-diligence  Risk analysis, technical debt, security, compliance signals
 
 EXAMPLES:
-  npx tsx src/index.ts --project ~/my-project "Add JWT authentication"
-  npx tsx src/index.ts "Analyze this project and create a roadmap"
-  npx tsx src/index.ts -p ~/app -s backend-dev,security,qa "Implement Google login"
-  npx tsx src/index.ts -p ~/app --persona new-dev "Explain the authentication flow"
-  npx tsx src/index.ts -p ~/app --persona tech-lead "Migrate from REST to GraphQL"
+  npx jay-crew --project ~/my-project "Add JWT authentication"
+  npx jay-crew "Analyze this project and create a roadmap"
+  npx jay-crew -p ~/app -s backend-dev,security,qa "Implement Google login"
+  npx jay-crew -p ~/app --persona new-dev "Explain the authentication flow"
+  npx jay-crew -p ~/app --persona tech-lead "Migrate from REST to GraphQL"
 `);
 }
 
