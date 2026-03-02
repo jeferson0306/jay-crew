@@ -23,5 +23,8 @@ crew-context-*.md
 crew-plan-*.md
 xray-*.md
 
+# Cache
+.jay-crew-cache/
+
 # OS
 .DS_Store

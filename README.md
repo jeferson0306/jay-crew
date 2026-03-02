@@ -181,6 +181,50 @@ Step 6 ──► AI acts as the Orchestrator
 
 ---
 
+## Caching
+
+Jay Crew automatically caches project scans to speed up subsequent runs.
+
+### How It Works
+
+On the **first run**, Jay Crew scans your project and saves the results to `.jay-crew-cache/`:
+
+```bash
+$ npx jay-crew -p ~/my-project "Analyze this"
+
+🔍  Scanning target project...
+✅  234 files scanned in 2.1s
+💾  Cache saved to .jay-crew-cache/
+```
+
+On **subsequent runs** (if the project hasn't changed), Jay Crew loads from cache instantly:
+
+```bash
+$ npx jay-crew -p ~/my-project "Different task"
+
+⚡  Cache hit! Loading previous analysis...
+🔬  Stack detected: Java · Spring Boot, Docker, PostgreSQL
+```
+
+### Cache Details
+
+- **Location**: `.jay-crew-cache/` inside your project (not in node_modules)
+- **Contents**: Project structure hash, detected stack, file list
+- **Smart invalidation**: Cache is automatically refreshed if any key files change:
+  - `package.json`, `pom.xml`, `build.gradle`, `go.mod`, `Cargo.toml`, `pyproject.toml`
+  - Docker config, CI/CD workflows, dependency files
+- **Safe**: Add `.jay-crew-cache/` to `.gitignore` (already done by default)
+
+### Bypass Cache
+
+To force a full re-scan without using the cache:
+
+```bash
+npx jay-crew --no-cache -p ~/my-project "Force re-scan"
+```
+
+---
+
 ## The Team
 
 ### Core Agents
@@ -240,6 +284,7 @@ npx jay-crew [options] "your request"
 | `--project <path>` | `-p` | Path to the target project (default: current directory) |
 | `--specialists <list>` | `-s` | Comma-separated list of specific specialists to force |
 | `--persona <type>` | `-r` | Persona profile to shape the Orchestrator output |
+| `--no-cache` | | Bypass cache and re-scan the project |
 | `--help` | `-h` | Show help message |
 
 ### Examples

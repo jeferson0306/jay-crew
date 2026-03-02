@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { buildProjectSnapshot, buildProjectContext } from "./tools/project-scanner.js";
 import { resolveProjectPath } from "./tools/path-utils.js";
+import { getCachedResult, saveCache, getCacheDirName } from "./tools/cache-manager.js";
 import type { PersonaRole, SpecialistRole, DetectedStack } from "./types/index.js";
 
 // ─── CLI argument parsing ─────────────────────────────────────────────────────
@@ -11,6 +12,7 @@ interface CliArgs {
   userRequest: string;
   specificSpecialists?: SpecialistRole[];
   persona?: PersonaRole;
+  noCache?: boolean;
 }
 
 const VALID_ROLES: SpecialistRole[] = [
@@ -37,6 +39,7 @@ function parseArgs(): CliArgs {
   let projectPath = process.cwd();
   let specificSpecialists: SpecialistRole[] | undefined;
   let persona: PersonaRole | undefined;
+  let noCache = false;
   const requestParts: string[] = [];
 
   let i = 0;
@@ -56,6 +59,8 @@ function parseArgs(): CliArgs {
       } else {
         console.error(`Warning: Unknown persona "${raw}". Valid values: ${VALID_PERSONAS.join(", ")}\n`);
       }
+    } else if (args[i] === "--no-cache") {
+      noCache = true;
     } else {
       requestParts.push(args[i]);
     }
@@ -69,7 +74,7 @@ function parseArgs(): CliArgs {
     process.exit(1);
   }
 
-  return { projectPath, userRequest, specificSpecialists, persona };
+  return { projectPath, userRequest, specificSpecialists, persona, noCache };
 }
 
 function printHelp(): void {
@@ -84,6 +89,7 @@ OPTIONS:
   --project,     -p <path>     Path to target project (default: current directory)
   --specialists, -s <list>     Comma-separated list of specific specialists
   --persona,     -r <persona>  Persona profile to shape the Orchestrator output
+  --no-cache                   Bypass cache and re-scan the project
   --help,        -h            Show this help message
 
 AVAILABLE SPECIALISTS:
@@ -106,7 +112,7 @@ EXAMPLES:
   npx jay-crew "Analyze this project and create a roadmap"
   npx jay-crew -p ~/app -s backend-dev,security,qa "Implement Google login"
   npx jay-crew -p ~/app --persona new-dev "Explain the authentication flow"
-  npx jay-crew -p ~/app --persona tech-lead "Migrate from REST to GraphQL"
+  npx jay-crew -p ~/app --no-cache "Re-scan and analyze the project"
 `);
 }
 
@@ -394,7 +400,7 @@ function log(emoji: string, message: string): void {
 // ─── Main flow ────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  const { projectPath, userRequest, specificSpecialists, persona } = parseArgs();
+  const { projectPath, userRequest, specificSpecialists, persona, noCache } = parseArgs();
 
   console.log("\n╔══════════════════════════════════════════════════╗");
   console.log("║         JAY CREW — Multi-Agent AI Team          ║");
@@ -405,18 +411,46 @@ async function main(): Promise<void> {
   if (persona) log("🎭", `Persona: ${persona}`);
   console.log("");
 
-  // ── Scan target project ───────────────────────────────────────────────────────
-  log("🔍", "Scanning target project...");
-  const start = Date.now();
-  const snapshot = await buildProjectSnapshot(projectPath);
-  const projectContext = buildProjectContext(snapshot);
-  const m = snapshot.sourceMeta;
-  const budgetKb = Math.round(m.budgetUsedBytes / 1024);
-  log("✅", `${snapshot.stats.totalFiles} files scanned in ${((Date.now() - start) / 1000).toFixed(1)}s — ${m.totalInContext} files in context (${m.fullCount} full · ${m.skeletalCount} skel) · ${budgetKb} KB used`);
+  // ── Try to load from cache ───────────────────────────────────────────────────
+  let snapshot: any;
+  let projectContext: string = "";
+  let cached = false;
+
+  if (!noCache) {
+    const cachedResult = await getCachedResult(projectPath, true);
+    if (cachedResult) {
+      log("⚡", `Cache hit! Loading previous analysis...`);
+      snapshot = {
+        projectName: path.basename(projectPath),
+        detectedStack: cachedResult.detectedStack,
+        stats: { totalFiles: 0 },
+        sourceMeta: { budgetUsedBytes: 0, totalInContext: 0, fullCount: 0, skeletalCount: 0 },
+      };
+      projectContext = `(Loaded from cache)`;
+      cached = true;
+      console.log("");
+    }
+  }
+
+  // ── Scan target project if not cached ─────────────────────────────────────────
+  if (!cached) {
+    log("🔍", "Scanning target project...");
+    const start = Date.now();
+    snapshot = await buildProjectSnapshot(projectPath);
+    projectContext = buildProjectContext(snapshot);
+    const m = snapshot.sourceMeta;
+    const budgetKb = Math.round(m.budgetUsedBytes / 1024);
+    log("✅", `${snapshot.stats.totalFiles} files scanned in ${((Date.now() - start) / 1000).toFixed(1)}s — ${m.totalInContext} files in context (${m.fullCount} full · ${m.skeletalCount} skel) · ${budgetKb} KB used`);
+    
+    // Save to cache for next run
+    await saveCache(projectPath, snapshot.detectedStack, snapshot.prioritizedFiles);
+    log("💾", `Cache saved to ${getCacheDirName()}/`);
+    console.log("");
+  }
   
   // ── Show detected stack ─────────────────────────────────────────────────────
   const stack = snapshot.detectedStack;
-  const langStr = stack.languages.slice(0, 3).map((l) => l.name).join(", ");
+  const langStr = stack.languages.slice(0, 3).map((l: any) => l.name).join(", ");
   const frameworkStr = stack.frameworks.slice(0, 3).join(", ");
   log("🔬", `Stack detected: ${langStr || "unknown"}${frameworkStr ? ` · ${frameworkStr}` : ""}`);
   
